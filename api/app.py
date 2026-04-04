@@ -234,6 +234,31 @@ class PIIRequest(BaseModel):
 class OCRRequest(BaseModel):
     text: str = Field(..., min_length=1)
 
+class ClassifyRequest(BaseModel):
+    title: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1)
+    agency: str = ""
+
+class MetadataRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+
+class RedactionReviewRequest(BaseModel):
+    title: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1)
+    security_level: str = "secret"
+    years_since_creation: int = 0
+
+
+# ─── BRM 카테고리 ───
+
+BRM_CATEGORIES = {
+    "A": "일반공공행정", "B": "공공질서및안전", "C": "통일외교", "D": "국방",
+    "E": "교육", "F": "문화및관광", "G": "환경", "H": "사회복지",
+    "I": "보건", "J": "농림해양수산", "K": "산업중소기업에너지",
+    "L": "교통및물류", "M": "통신", "N": "국토및지역개발",
+    "O": "과학기술", "P": "재정금융",
+}
+
 
 # ─── 엔드포인트 ───
 
@@ -334,3 +359,214 @@ async def correct_ocr(req: OCRRequest):
         }
     else:
         return inline_correct_ocr(req.text)
+
+
+# ─── 새 엔드포인트: 분류, 메타데이터, 비밀해제, 통계, 파이프라인 ───
+
+@app.post("/classify")
+async def classify_record(req: ClassifyRequest):
+    """BRM 업무기능 분류"""
+    # 인라인 규칙 기반 분류 (GPU 없이 동작)
+    content_lower = (req.title + " " + req.content + " " + req.agency).lower()
+    scores = {}
+    keywords_map = {
+        "A": ["행정", "기록물", "공무원", "정부혁신", "인사", "조직"],
+        "B": ["경찰", "소방", "재난", "치안", "안전"],
+        "C": ["외교", "통일", "남북", "전쟁", "독립운동", "국제"],
+        "D": ["국방", "군사", "안보", "병역", "방위"],
+        "E": ["교육", "학교", "교과", "입시", "장학"],
+        "F": ["문화", "관광", "유산", "박물관", "콘텐츠", "실록"],
+        "G": ["환경", "생태", "탄소", "미세먼지", "폐기물"],
+        "H": ["복지", "수급", "저출생", "노인", "장애", "아동"],
+        "I": ["보건", "의료", "코로나", "감염", "건강"],
+        "J": ["농업", "수산", "식량", "스마트팜", "해양"],
+        "K": ["산업", "반도체", "에너지", "중소기업", "소상공인"],
+        "L": ["교통", "철도", "항공", "물류"],
+        "M": ["통신", "5G", "디지털", "네트워크"],
+        "N": ["국토", "택지", "도시재생", "주택"],
+        "O": ["과학", "기술", "R&D", "우주", "양자", "AI"],
+        "P": ["재정", "세금", "국채", "금융", "예산"],
+    }
+    for code, kws in keywords_map.items():
+        match_count = sum(1 for kw in kws if kw in content_lower)
+        if match_count > 0:
+            scores[code] = match_count / len(kws)
+
+    if not scores:
+        scores["A"] = 0.3
+
+    sorted_codes = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    top = sorted_codes[0]
+    alternatives = [
+        {"brm_code": c, "brm_name": BRM_CATEGORIES.get(c, ""), "confidence": round(s, 2)}
+        for c, s in sorted_codes[1:4]
+    ]
+
+    return {
+        "brm_code": top[0],
+        "brm_name": BRM_CATEGORIES.get(top[0], ""),
+        "confidence": round(min(top[1] * 2, 0.95), 2),
+        "reasoning": f"키워드 매칭 기반 분류. '{req.title}'에서 {BRM_CATEGORIES.get(top[0], '')} 관련 키워드 탐지.",
+        "alternatives": alternatives,
+    }
+
+
+@app.post("/metadata")
+async def generate_metadata(req: MetadataRequest):
+    """메타데이터 자동 생성"""
+    content = req.content
+    # 제목 추출 (첫 문장 또는 첫 50자)
+    first_sentence = content.split(".")[0].strip() if "." in content else content[:50]
+    title = first_sentence[:60]
+
+    # 요약 (첫 200자)
+    summary = content[:200].strip()
+
+    # 키워드 추출 (빈도 기반)
+    import re as _re
+    words = _re.findall(r'[가-힣]{2,}', content)
+    from collections import Counter
+    word_freq = Counter(words)
+    stopwords = {"있다", "하다", "되다", "이다", "위한", "따라", "관련", "대한", "통해"}
+    keywords = [w for w, _ in word_freq.most_common(20) if w not in stopwords and len(w) >= 2][:10]
+
+    # NER (패턴 기반)
+    agencies = list(set(_re.findall(r'[가-힣]{2,10}(?:부|처|청|원|위원회|공단|재단)', content)))
+    dates = _re.findall(r'\d{4}년\s?\d{1,2}월\s?\d{1,2}일|\d{4}년|\d{4}-\d{2}-\d{2}', content)
+    persons = list(set(_re.findall(r'[가-힣]{2,4}(?:씨|님|장관|청장|위원장|대통령)', content)))
+
+    entities = []
+    for a in agencies:
+        entities.append({"text": a, "entity_type": "ORGANIZATION", "confidence": 0.85})
+    for d in dates:
+        entities.append({"text": d, "entity_type": "DATE", "confidence": 0.90})
+    for p in persons:
+        entities.append({"text": p, "entity_type": "PERSON", "confidence": 0.75})
+
+    return {
+        "title_suggestion": title,
+        "summary": summary,
+        "keywords": keywords,
+        "named_entities": entities,
+        "entity_count": len(entities),
+    }
+
+
+@app.post("/redaction/review")
+async def redaction_review(req: RedactionReviewRequest):
+    """비밀해제 심사 도우미 (HITL 필수)"""
+    # PII 탐지
+    pii_result = inline_detect_pii(req.content)
+
+    # 공개 적합성 판단
+    recommendation = "비공개 유지"
+    reasoning_parts = []
+    legal_basis = "공공기록물법 제34조"
+
+    if req.years_since_creation >= 30:
+        recommendation = "공개"
+        reasoning_parts.append(f"생산 후 {req.years_since_creation}년 경과 → 30년 원칙적 공개 대상")
+        legal_basis = "공공기록물법 제34조 (30년 경과 기록물 공개 원칙)"
+
+    if pii_result["pii_count"] > 0:
+        if recommendation == "공개":
+            recommendation = "부분공개"
+            reasoning_parts.append(f"PII {pii_result['pii_count']}건 탐지 → 가명처리 후 부분공개")
+        else:
+            reasoning_parts.append(f"PII {pii_result['pii_count']}건 탐지")
+
+    security_concerns = []
+    sensitive_keywords = ["국가안보", "군사기밀", "외교비밀", "수사기밀"]
+    for kw in sensitive_keywords:
+        if kw in req.content:
+            security_concerns.append(f"'{kw}' 키워드 포함")
+            recommendation = "비공개 유지"
+            reasoning_parts.append(f"'{kw}' 관련 내용 포함 → 비공개 유지 권고")
+
+    if not reasoning_parts:
+        reasoning_parts.append("특별한 공개 제한 사유 없음")
+
+    confidence = 0.85 if req.years_since_creation >= 30 else 0.6
+
+    return {
+        "recommendation": recommendation,
+        "confidence": confidence,
+        "reasoning": ". ".join(reasoning_parts),
+        "legal_basis": legal_basis,
+        "security_concerns": security_concerns,
+        "pii_summary": {
+            "count": pii_result["pii_count"],
+            "detections": pii_result["detections"],
+        },
+        "hitl_required": True,
+        "hitl_warning": "이 결과는 AI 추천이며, 최종 비밀해제 결정은 반드시 기록물관리 전문가가 수행해야 합니다.",
+    }
+
+
+@app.get("/stats")
+async def get_stats():
+    """기록물 통계 대시보드"""
+    # Supabase에서 통계 조회
+    stats = {"brm_distribution": {}, "agency_distribution": {}, "total_records": 0}
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                f"{SUPABASE_URL}/rest/v1/nara_records?select=id,brm_code,agency",
+                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+            )
+            if r.status_code == 200:
+                records = r.json()
+                stats["total_records"] = len(records)
+                for rec in records:
+                    code = rec.get("brm_code", "?")
+                    agency = rec.get("agency", "미상")
+                    brm_name = BRM_CATEGORIES.get(code, code)
+                    stats["brm_distribution"][brm_name] = stats["brm_distribution"].get(brm_name, 0) + 1
+                    stats["agency_distribution"][agency] = stats["agency_distribution"].get(agency, 0) + 1
+    except Exception:
+        pass
+
+    # CPU 인덱스 통계
+    embedder = get_cpu_embedder()
+    if embedder and hasattr(embedder, 'documents'):
+        stats["cpu_index_records"] = len(embedder.documents)
+
+    stats["brm_categories"] = BRM_CATEGORIES
+    stats["system"] = {
+        "env": ENV, "has_src": HAS_SRC,
+        "pipeline_stages": 11, "hitl_gates": 4, "mcp_tools": 47,
+        "ai_agents": 6, "gpu_profiles": 12,
+    }
+    return stats
+
+
+@app.get("/pipeline")
+async def get_pipeline():
+    """11단계 파이프라인 정보"""
+    stages = [
+        {"id": 1, "name": "수집 (Ingest)", "desc": "RAMP/파일시스템에서 기록물 수집", "icon": "📥"},
+        {"id": 2, "name": "레이아웃 (Layout)", "desc": "YOLO-DocLayout 문서 영역 분석", "icon": "📐"},
+        {"id": 3, "name": "OCR", "desc": "3모델 앙상블 (Qwen3-VL + PaddleOCR + TrOCR)", "icon": "🔍"},
+        {"id": 4, "name": "후처리 (Post)", "desc": "맞춤법 교정, 한자 병기, 구조화", "icon": "✏️"},
+        {"id": 5, "name": "분류 (Classify)", "desc": "BRM 업무기능 자동 매핑 (F1>=0.92)", "icon": "🏷️"},
+        {"id": 6, "name": "메타데이터 (Metadata)", "desc": "제목/요약/키워드/NER 자동 생성", "icon": "📋"},
+        {"id": 7, "name": "비밀해제 (Redaction)", "desc": "PII 탐지 + 공개 적합성 [HITL 필수]", "icon": "🔓", "hitl": True},
+        {"id": 8, "name": "임베딩 (Embedding)", "desc": "BGE-M3-Korean 1024차원 벡터화", "icon": "🧮"},
+        {"id": 9, "name": "그래프 (Graph)", "desc": "RiC-CM 1.0 지식그래프 노드/관계", "icon": "🕸️"},
+        {"id": 10, "name": "품질 (Quality)", "desc": "6항목 품질 검증 게이트", "icon": "✅"},
+        {"id": 11, "name": "보안 (Security)", "desc": "4중 보안 스캐닝 (ISMS-P)", "icon": "🛡️"},
+    ]
+    hitl_gates = [
+        {"action": "비밀해제 심사", "law": "공공기록물법 제34조", "desc": "비공개→공개 전환 최종 결정"},
+        {"action": "보존기간 변경", "law": "공공기록물법 제38조", "desc": "보존기간 연장/단축 승인"},
+        {"action": "분류 이의", "law": "공공기록물법 제33조", "desc": "AI 분류에 대한 이의 처리"},
+        {"action": "폐기 승인", "law": "공공기록물법 제26조", "desc": "기록물 폐기 2인 이상 승인"},
+    ]
+    compliance = [
+        {"name": "AI 기본법", "date": "2026.1", "items": ["HITL 4개", "감사추적", "설명가능성", "편향방지"]},
+        {"name": "ISMS-P", "date": "2027.7", "items": ["JWT+RBAC", "PII 6종", "4중 스캔", "TLS 1.3"]},
+        {"name": "N2SF", "date": "적용중", "items": ["에어갭", "망분리", "데이터주권", "CSAP"]},
+        {"name": "공공기록물법", "date": "적용중", "items": ["비밀해제HITL", "폐기2인승인", "30년공개", "감사10년"]},
+    ]
+    return {"stages": stages, "hitl_gates": hitl_gates, "compliance": compliance}
