@@ -1,0 +1,203 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-archive
+  namespace: nara-ai
+  labels:
+    app: mcp-archive
+    component: mcp-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mcp-archive
+  template:
+    metadata:
+      labels:
+        app: mcp-archive
+        component: mcp-server
+    spec:
+      containers:
+        - name: mcp-archive
+          image: nara-ai/mcp-server:latest
+          env:
+            - name: MCP_SERVER
+              value: "archive"
+            - name: PORT
+              value: "3001"
+            - name: NODE_ENV
+              value: "production"
+          ports:
+            - containerPort: 3001
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-archive
+  namespace: nara-ai
+spec:
+  selector:
+    app: mcp-archive
+  ports:
+    - port: 3001
+      targetPort: 3001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-iarna
+  namespace: nara-ai
+  labels:
+    app: mcp-iarna
+    component: mcp-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mcp-iarna
+  template:
+    metadata:
+      labels:
+        app: mcp-iarna
+        component: mcp-server
+    spec:
+      containers:
+        - name: mcp-iarna
+          image: nara-ai/mcp-server:latest
+          env:
+            - name: MCP_SERVER
+              value: "iarna"
+            - name: PORT
+              value: "3002"
+          ports:
+            - containerPort: 3002
+          resources:
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+            initialDelaySeconds: 10
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-iarna
+  namespace: nara-ai
+spec:
+  selector:
+    app: mcp-iarna
+  ports:
+    - port: 3002
+      targetPort: 3002
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-law
+  namespace: nara-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-law
+  template:
+    metadata:
+      labels:
+        app: mcp-law
+        component: mcp-server
+    spec:
+      containers:
+        - name: mcp-law
+          image: nara-ai/mcp-server:latest
+          env:
+            - name: MCP_SERVER
+              value: "law"
+            - name: PORT
+              value: "3004"
+          ports:
+            - containerPort: 3004
+          resources:
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-law
+  namespace: nara-ai
+spec:
+  selector:
+    app: mcp-law
+  ports:
+    - port: 3004
+      targetPort: 3004
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-ramp
+  namespace: nara-ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mcp-ramp
+  template:
+    metadata:
+      labels:
+        app: mcp-ramp
+        component: mcp-server
+    spec:
+      containers:
+        - name: mcp-ramp
+          image: nara-ai/mcp-server:latest
+          env:
+            - name: MCP_SERVER
+              value: "ramp"
+            - name: PORT
+              value: "3005"
+          ports:
+            - containerPort: 3005
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-ramp
+  namespace: nara-ai
+spec:
+  selector:
+    app: mcp-ramp
+  ports:
+    - port: 3005
+      targetPort: 3005

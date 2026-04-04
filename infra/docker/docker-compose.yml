@@ -1,0 +1,217 @@
+# NARA-AI 통합 Docker Compose
+# 국가기록원 AI 기반 지능형 기록물 검색·분류·활용 체계
+# 에어갭(물리적 망분리) 환경용 - 외부 네트워크 접근 금지
+
+version: "3.9"
+
+x-common-env: &common-env
+  TZ: Asia/Seoul
+  LOG_LEVEL: INFO
+
+services:
+  # ─── 벡터 DB: Milvus 2.6 ───
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+    volumes:
+      - etcd_data:/etcd
+    command: >
+      etcd
+      -advertise-client-urls=http://127.0.0.1:2379
+      -listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nara-internal
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nara-internal
+
+  milvus:
+    image: milvusdb/milvus:v2.6.0
+    environment:
+      <<: *common-env
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - milvus_data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - nara-internal
+
+  # ─── 임베딩 서버: BGE-M3-Korean ───
+  embedding:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.ml
+    environment:
+      <<: *common-env
+      MODEL_NAME: upskyy/bge-m3-korean
+      PORT: "8002"
+    ports:
+      - "8002:8002"
+    command: ["python", "-m", "uvicorn", "src.search.embedding.server:app", "--host", "0.0.0.0", "--port", "8002"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nara-internal
+
+  # ─── MCP 서버 5개 ───
+  mcp-archive:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.mcp
+    environment:
+      <<: *common-env
+      MCP_SERVER: archive
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - nara-internal
+
+  mcp-iarna:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.mcp
+    environment:
+      <<: *common-env
+      MCP_SERVER: iarna
+      PORT: "3002"
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - nara-internal
+
+  mcp-nara:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.mcp
+    environment:
+      <<: *common-env
+      MCP_SERVER: nara
+      PORT: "3003"
+    ports:
+      - "3003:3003"
+    networks:
+      - nara-internal
+
+  mcp-law:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.mcp
+    environment:
+      <<: *common-env
+      MCP_SERVER: law
+      PORT: "3004"
+    ports:
+      - "3004:3004"
+    networks:
+      - nara-internal
+
+  mcp-ramp:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.mcp
+    environment:
+      <<: *common-env
+      MCP_SERVER: ramp
+      PORT: "3005"
+    ports:
+      - "3005:3005"
+    networks:
+      - nara-internal
+
+  # ─── 모니터링 ───
+  prometheus:
+    image: prom/prometheus:v2.54.0
+    volumes:
+      - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=365d'
+    networks:
+      - nara-internal
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-nara-ai-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - nara-internal
+
+volumes:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  nara-internal:
+    driver: bridge
+    internal: true  # 외부 네트워크 차단 (에어갭)

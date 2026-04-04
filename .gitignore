@@ -1,0 +1,47 @@
+# NARA-AI .gitignore
+
+# 환경 변수 (보안)
+.env
+.env.*
+!.env.example
+
+# 모델 체크포인트 (대용량)
+checkpoints/
+*.ckpt
+*.safetensors
+*.bin
+
+# 데이터 (대용량)
+data/raw/
+data/processed/
+data/embeddings/
+
+# 로그
+logs/
+*.log
+wandb/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node.js
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Docker
+*.tar.gz
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 임시 작업공간 (감사추적 제외하고)
+_workspace/audit/  # 감사추적은 보존

@@ -1,0 +1,30 @@
+# NARA-AI CPU 최적화 의존성
+# ONNX Runtime / OpenVINO로 CPU에서도 임베딩 모델 실행 가능
+
+# 핵심
+fastapi>=0.115.0
+uvicorn>=0.34.0
+httpx>=0.28.0
+pydantic>=2.10.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# CPU PyTorch (선택 — ONNX 사용 시 불필요)
+# pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# ONNX Runtime (Intel/AMD x86 CPU 최적화)
+onnxruntime>=1.20.0
+
+# OpenVINO (Intel CPU 전용, 선택)
+# pip install openvino>=2024.6.0
+
+# 경량 임베딩 (CPU)
+sentence-transformers>=3.4.0
+
+# 데이터 처리
+numpy>=1.26.0
+scikit-learn>=1.5.0
+
+# 테스트
+pytest>=8.0.0
+pytest-asyncio>=0.24.0

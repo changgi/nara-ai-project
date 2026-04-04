@@ -1,0 +1,43 @@
+{
+  "name": "nara-ai-project",
+  "version": "1.0.0",
+  "description": "AI 기반 국가기록물 지능형 검색·분류·활용 체계 구축 — 국가 AI 프로젝트 GPU 지원 과제",
+  "author": "국가기록원 기록관리교육센터",
+  "license": "PROPRIETARY",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "harness": "npx tsx harness/harness.ts",
+    "init": "npx tsx harness/harness.ts init",
+    "check": "npx tsx harness/harness.ts check",
+    "train": "npx tsx harness/harness.ts train",
+    "serve": "npx tsx harness/harness.ts serve",
+    "pipeline": "npx tsx harness/harness.ts pipeline",
+    "eval": "npx tsx harness/harness.ts eval",
+    "report": "npx tsx harness/harness.ts report",
+    "status": "npx tsx harness/harness.ts status",
+    "assets": "npx tsx harness/harness.ts assets",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/ --ext .ts,.tsx",
+    "dashboard": "npx tsx src/dashboard/server.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@modelcontextprotocol/sdk": "^2.3.0",
+    "@google-cloud/spanner": "^7.14.0",
+    "express": "^5.1.0",
+    "zod": "^3.25.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0",
+    "@types/node": "^22.0.0",
+    "@types/express": "^5.0.0",
+    "eslint": "^9.0.0"
+  }
+}

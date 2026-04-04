@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: milvus
+  namespace: nara-ai
+  labels:
+    app: milvus
+    component: vectordb
+spec:
+  serviceName: milvus
+  replicas: 1
+  selector:
+    matchLabels:
+      app: milvus
+  template:
+    metadata:
+      labels:
+        app: milvus
+        component: vectordb
+    spec:
+      containers:
+        - name: milvus
+          image: milvusdb/milvus:v2.6.0
+          env:
+            - name: ETCD_ENDPOINTS
+              value: "etcd:2379"
+            - name: MINIO_ADDRESS
+              value: "minio:9000"
+          ports:
+            - containerPort: 19530
+              name: grpc
+            - containerPort: 9091
+              name: metrics
+          resources:
+            limits:
+              memory: "16Gi"
+              cpu: "4000m"
+            requests:
+              memory: "8Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: milvus-data
+              mountPath: /var/lib/milvus
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9091
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9091
+            initialDelaySeconds: 30
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: milvus-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-nvme  # NVMe 스토리지
+        resources:
+          requests:
+            storage: 500Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: milvus
+  namespace: nara-ai
+spec:
+  selector:
+    app: milvus
+  ports:
+    - port: 19530
+      targetPort: 19530
+      name: grpc
+    - port: 9091
+      targetPort: 9091
+      name: metrics

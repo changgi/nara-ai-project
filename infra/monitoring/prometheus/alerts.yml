@@ -1,0 +1,57 @@
+# NARA-AI 알림 규칙
+groups:
+  - name: nara-ai-alerts
+    rules:
+      # GPU 사용률 90% 초과
+      - alert: HighGPUUtilization
+        expr: DCGM_FI_DEV_GPU_UTIL > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU 사용률 {{ $value }}% ({{ $labels.gpu }})"
+
+      # GPU 메모리 95% 초과 (OOM 위험)
+      - alert: GPUMemoryCritical
+        expr: DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU 메모리 {{ $value }}% 사용 - OOM 위험"
+
+      # vLLM 추론 레이턴시 P99 > 5초
+      - alert: HighInferenceLatency
+        expr: histogram_quantile(0.99, rate(vllm_request_duration_seconds_bucket[5m])) > 5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "추론 P99 레이턴시 {{ $value }}초"
+
+      # MCP 서버 다운
+      - alert: MCPServerDown
+        expr: up{job="mcp-servers"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MCP 서버 {{ $labels.instance }} 다운"
+
+      # Milvus 다운
+      - alert: MilvusDown
+        expr: up{job="milvus"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Milvus 벡터DB 다운"
+
+      # 검색 레이턴시 P99 > 2초 (성능 목표)
+      - alert: HighSearchLatency
+        expr: histogram_quantile(0.99, rate(nara_search_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "검색 P99 레이턴시 {{ $value }}초 (목표: 2초)"

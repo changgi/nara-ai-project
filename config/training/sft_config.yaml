@@ -1,0 +1,76 @@
+# NARA-AI SFT 학습 설정
+# EXAONE 3.5 8B 기반 기록물 분류/메타데이터/비밀해제 SFT
+
+model:
+  base_model: "LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct"
+  quantization: "qlora-4bit"
+  lora:
+    rank: 64
+    alpha: 128
+    dropout: 0.05
+    target_modules:
+      - "q_proj"
+      - "k_proj"
+      - "v_proj"
+      - "o_proj"
+      - "gate_proj"
+      - "up_proj"
+      - "down_proj"
+    use_dora: true  # DoRA: weight-decomposed LoRA
+
+training:
+  epochs: 3
+  per_device_batch_size: 4
+  gradient_accumulation_steps: 8
+  effective_batch_size: 32  # 4 * 8 = 32
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  lr_scheduler: "cosine"
+  max_seq_length: 4096
+  bf16: true
+  gradient_checkpointing: true
+  max_grad_norm: 1.0
+
+data:
+  datasets:
+    classifier:
+      path: "data/processed/sft/classification-50k.jsonl"
+      samples: 50000
+      task: "기록물 BRM 업무기능 분류"
+    metadata:
+      path: "data/processed/sft/metadata-gen-30k.jsonl"
+      samples: 30000
+      task: "메타데이터 자동 생성"
+    redaction:
+      path: "data/processed/sft/redaction-20k.jsonl"
+      samples: 20000
+      task: "비밀해제 심사 지원"
+  format: "instruction"  # instruction-input-output 형식
+  validation_split: 0.05
+
+evaluation:
+  eval_steps: 500
+  save_steps: 500
+  save_total_limit: 3
+  metric_for_best_model: "eval_loss"
+  greater_is_better: false
+  load_best_model_at_end: true
+
+output:
+  output_dir: "checkpoints/nara-sft-v1"
+  logging_dir: "logs/sft"
+
+tracking:
+  wandb:
+    project: "nara-ai-sft"
+    entity: "nara-ai"
+    tags: ["sft", "exaone-3.5", "classifier", "metadata", "redaction"]
+
+deepspeed:
+  config_path: "config/ds_zero3.json"
+
+gpu:
+  min_gpus: 4
+  recommended_gpus: 8
+  tensor_parallel: 1  # QLoRA는 TP 불필요

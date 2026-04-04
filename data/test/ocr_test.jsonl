@@ -1,0 +1,5 @@
+{"image_id": "test_001", "document_type": "printed_korean", "ground_truth": "대한민국 국가기록원은 기록물의 효율적 관리와 활용을 위해 설립되었다.", "ocr_result": "대한민국 국가기록원은 기록물의 효율적 관리와 활용을 위해 설립되었다."}
+{"image_id": "test_002", "document_type": "printed_korean", "ground_truth": "공공기록물 관리에 관한 법률 제6조에 따라 기록물을 관리한다.", "ocr_result": "공공기록물 관리에 관한 법률 제6조에 따라 기록물을 관리한다."}
+{"image_id": "test_003", "document_type": "hanja_mixed", "ground_truth": "國家記錄院(국가기록원)은 行政安全部(행정안전부) 소속이다.", "ocr_result": "國家記錄院(국가기록원)은 行政安全部(행정안전부) 소속이다."}
+{"image_id": "test_004", "document_type": "printed_korean", "ground_truth": "보존기간이 경과한 기록물은 폐기 심사를 거쳐 처리한다.", "ocr_result": "보존기간이 경과한 기록물은 폐기 심사를 거쳐 처리한다."}
+{"image_id": "test_005", "document_type": "printed_korean", "ground_truth": "비밀기록물은 생산등록 후 비밀관리기록부에 기재하여야 한다.", "ocr_result": "비밀기록물은 생산등록 후 비밀관리기록부에 기재하여야 한다."}

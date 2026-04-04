@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-04-04T10:08:44.087211+09:00",
+  "all_passed": true,
+  "total_duration_seconds": 0.0010971000010613352,
+  "results": [
+    {
+      "task": "classification",
+      "metric": "f1",
+      "value": 1.0,
+      "target": 0.92,
+      "passed": true,
+      "samples": 10
+    },
+    {
+      "task": "ocr_printed",
+      "metric": "cer",
+      "value": 0.0,
+      "target": 0.03,
+      "passed": true,
+      "samples": 5
+    }
+  ]
+}

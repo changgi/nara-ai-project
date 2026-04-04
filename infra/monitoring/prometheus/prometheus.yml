@@ -1,0 +1,44 @@
+# NARA-AI Prometheus 모니터링 설정
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alerts.yml"
+
+scrape_configs:
+  # vLLM 추론 서버
+  - job_name: "vllm-llm"
+    static_configs:
+      - targets: ["vllm-llm:8000"]
+    metrics_path: /metrics
+
+  - job_name: "vllm-ocr"
+    static_configs:
+      - targets: ["vllm-ocr:8001"]
+    metrics_path: /metrics
+
+  # 임베딩 서버
+  - job_name: "embedding"
+    static_configs:
+      - targets: ["embedding:8002"]
+
+  # MCP 서버
+  - job_name: "mcp-servers"
+    static_configs:
+      - targets:
+          - "mcp-archive:3001"
+          - "mcp-iarna:3002"
+          - "mcp-nara:3003"
+          - "mcp-law:3004"
+          - "mcp-ramp:3005"
+
+  # Milvus
+  - job_name: "milvus"
+    static_configs:
+      - targets: ["milvus:9091"]
+
+  # NVIDIA GPU (DCGM Exporter)
+  - job_name: "gpu"
+    static_configs:
+      - targets: ["localhost:9400"]

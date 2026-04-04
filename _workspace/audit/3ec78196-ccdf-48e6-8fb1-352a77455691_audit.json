@@ -1,0 +1,17 @@
+[
+  {
+    "decision_id": "e8859420-7ed1-461c-b5b1-f45a72589950",
+    "timestamp": "2026-04-04T02:44:01.329809+09:00",
+    "user_id": "demo",
+    "agent_name": "nara-ai-demo",
+    "stage": "demo",
+    "action": "pipeline_demo",
+    "input_hash": "e07b29e0a489544c",
+    "output_summary": "데모 실행 완료",
+    "confidence": 1.0,
+    "reasoning": "초기 환경 검증용 데모 실행",
+    "hitl_required": false,
+    "hitl_decision": null,
+    "duration_ms": 0.0
+  }
+]

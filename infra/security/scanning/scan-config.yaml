@@ -1,0 +1,71 @@
+# NARA-AI 4중 보안 스캐닝 설정
+# ISMS-P 인증 대비 취약점 탐지
+
+# 1. CodeQL (SAST - 정적 분석)
+codeql:
+  languages: ["python", "typescript"]
+  queries:
+    - security-and-quality
+    - security-extended
+  exclusions:
+    - "tests/**"
+    - "node_modules/**"
+    - "__pycache__/**"
+
+# 2. Semgrep Pro (패턴 기반 보안 분석)
+semgrep:
+  rules:
+    - p/python
+    - p/typescript
+    - p/owasp-top-ten
+    - p/secrets
+  severity_threshold: "WARNING"
+  exclude:
+    - "tests/"
+    - "*.test.*"
+
+# 3. Trivy (컨테이너/의존성 취약점)
+trivy:
+  scan_targets:
+    - "infra/docker/Dockerfile.ml"
+    - "infra/docker/Dockerfile.mcp"
+    - "requirements-ml.txt"
+    - "package.json"
+  severity: "CRITICAL,HIGH"
+  ignore_unfixed: true
+
+# 4. TruffleHog (시크릿 탐지)
+trufflehog:
+  scan_paths:
+    - "src/"
+    - "config/"
+    - "infra/"
+    - "scripts/"
+  excluded_detectors:
+    - "HighEntropy"  # 오탐 방지
+  only_verified: true
+
+# 스캔 일정
+schedule:
+  pre_commit: ["semgrep", "trufflehog"]   # 커밋 전
+  ci_pipeline: ["codeql", "semgrep", "trivy", "trufflehog"]  # CI/CD
+  weekly: ["trivy"]  # 주간 전수 스캔
+
+# PII 스캐닝 (한국 개인정보)
+pii_scanning:
+  enabled: true
+  patterns:
+    - name: "주민등록번호"
+      regex: '\d{6}-[1-4]\d{6}'
+      severity: "CRITICAL"
+    - name: "전화번호"
+      regex: '01[0-9]-?\d{3,4}-?\d{4}'
+      severity: "HIGH"
+    - name: "여권번호"
+      regex: '[A-Z]{1,2}\d{7,8}'
+      severity: "CRITICAL"
+  scan_targets:
+    - "data/"
+    - "logs/"
+    - "checkpoints/"
+  action_on_detection: "block_and_alert"

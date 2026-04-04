@@ -1,0 +1,29 @@
+[project]
+name = "nara-ai"
+version = "1.0.0"
+description = "AI 기반 국가기록물 지능형 검색·분류·활용 체계"
+requires-python = ">=3.11"
+license = "MIT"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "slow: 시간이 오래 걸리는 테스트",
+    "gpu: GPU가 필요한 테스트",
+    "integration: 통합 테스트 (서비스 필요)",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

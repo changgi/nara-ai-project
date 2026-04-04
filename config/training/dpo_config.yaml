@@ -1,0 +1,49 @@
+# NARA-AI DPO 학습 설정
+# 기록물 관리 전문가 피드백 정렬 (Direct Preference Optimization)
+
+model:
+  base_model: "checkpoints/nara-sft-v1"  # SFT 완료 모델
+  quantization: "qlora-4bit"
+  lora:
+    rank: 32
+    alpha: 64
+    dropout: 0.05
+    target_modules:
+      - "q_proj"
+      - "k_proj"
+      - "v_proj"
+      - "o_proj"
+    use_dora: true
+
+training:
+  epochs: 1
+  per_device_batch_size: 2
+  gradient_accumulation_steps: 16
+  learning_rate: 5.0e-5
+  beta: 0.1  # DPO beta (KL divergence 가중치)
+  warmup_ratio: 0.1
+  max_seq_length: 4096
+  bf16: true
+  gradient_checkpointing: true
+
+data:
+  path: "data/processed/dpo/expert-feedback-5k.jsonl"
+  samples: 5000
+  format: "preference"  # chosen-rejected 쌍
+  validation_split: 0.1
+
+output:
+  output_dir: "checkpoints/nara-dpo-v1"
+  logging_dir: "logs/dpo"
+
+tracking:
+  wandb:
+    project: "nara-ai-dpo"
+    tags: ["dpo", "expert-feedback", "alignment"]
+
+deepspeed:
+  config_path: "config/ds_zero3.json"
+
+gpu:
+  min_gpus: 4
+  recommended_gpus: 8

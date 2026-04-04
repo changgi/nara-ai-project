@@ -1,0 +1,130 @@
+{
+  "$schema": "https://nara-ai.archives.go.kr/schemas/mcp-registry-v1.json",
+  "version": "1.0.0",
+  "project": "NARA-AI",
+  "description": "국가기록원 AI 시스템 MCP 서버 레지스트리",
+  "servers": [
+    {
+      "id": "mcp-archive",
+      "name": "Archive Agent MCP",
+      "description": "기록관리 42개 에이전트 (ARAM-ADK 래핑)",
+      "transport": "stdio",
+      "port": 3001,
+      "command": "npx tsx src/mcp-servers/archive/index.ts",
+      "legacy_asset": "aram-adk",
+      "tools": [
+        "classify_record", "appraise_retention", "generate_metadata",
+        "validate_compliance", "check_preservation", "suggest_disposition",
+        "extract_entities", "map_brm_code", "assess_historical_value",
+        "generate_archival_description"
+      ],
+      "health": "/health"
+    },
+    {
+      "id": "mcp-iarna",
+      "name": "IARNA Knowledge Graph MCP",
+      "description": "RiC-CM Property Graph + Vibe Query Engine",
+      "transport": "stdio",
+      "port": 3002,
+      "command": "npx tsx src/mcp-servers/iarna/index.ts",
+      "legacy_asset": "iarna",
+      "tools": [
+        "vibe_query", "thesaurus_lookup", "thesaurus_expand",
+        "ontology_map", "graph_neighbors", "graph_path",
+        "record_search", "facility_search", "timeline_query",
+        "explain_query", "vault_stats", "archival_standard"
+      ],
+      "health": "/health"
+    },
+    {
+      "id": "mcp-nara",
+      "name": "NARA-CLAW International Archives MCP",
+      "description": "NARA/TNA/DPLA 통합 검색 + RG 발굴 + Vision OCR",
+      "transport": "stdio",
+      "port": 3003,
+      "command": "npx tsx src/mcp-servers/nara/index.ts",
+      "legacy_asset": "nara-claw",
+      "tools": [
+        "nara_search_catalog", "nara_explore_record_group",
+        "nara_korean_records_scan", "nara_cross_reference_map",
+        "nara_collection_planner", "nara_agency_history",
+        "tna_search", "dpla_search",
+        "vision_ocr_analyze", "vision_classify_document",
+        "excavation_playbook_list", "excavation_strategy"
+      ],
+      "health": "/health"
+    },
+    {
+      "id": "mcp-law",
+      "name": "Records Law Advisory MCP",
+      "description": "공공기록물법 해석 + 보존기간 산정 + 법적 근거 매핑",
+      "transport": "stdio",
+      "port": 3004,
+      "command": "npx tsx src/mcp-servers/law/index.ts",
+      "legacy_asset": "girok-ai-agent",
+      "tools": [
+        "lookup_law_article", "interpret_retention_period",
+        "check_disclosure_criteria", "find_legal_basis",
+        "validate_against_law", "generate_legal_opinion"
+      ],
+      "health": "/health"
+    },
+    {
+      "id": "mcp-ramp",
+      "name": "RAMP Platform Integration MCP",
+      "description": "기록물통합서비스플랫폼(RAMP) 연동",
+      "transport": "stdio",
+      "port": 3005,
+      "command": "npx tsx src/mcp-servers/ramp/index.ts",
+      "legacy_asset": "records-ai-workspace",
+      "tools": [
+        "ramp_search_records", "ramp_get_metadata",
+        "ramp_update_classification", "ramp_submit_redaction",
+        "ramp_get_transfer_list", "ramp_check_status",
+        "ramp_export_statistics"
+      ],
+      "health": "/health"
+    }
+  ],
+  "orchestrator": {
+    "framework": "langgraph",
+    "version": ">=0.3.0",
+    "checkpoint_store": "sqlite:///data/langgraph-checkpoints.db",
+    "human_in_the_loop": {
+      "enabled": true,
+      "gates": [
+        "redaction_final_decision",
+        "retention_override",
+        "classification_dispute"
+      ]
+    },
+    "audit_trail": {
+      "enabled": true,
+      "storage": "data/audit-logs/",
+      "retention_days": 3650
+    }
+  },
+  "inference": {
+    "llm": {
+      "endpoint": "http://localhost:8000/v1",
+      "model": "nara-classifier",
+      "provider": "vllm"
+    },
+    "ocr": {
+      "endpoint": "http://localhost:8001/v1",
+      "model": "nara-ocr",
+      "provider": "vllm"
+    },
+    "embedding": {
+      "endpoint": "http://localhost:8002",
+      "model": "bge-m3-korean",
+      "dimension": 1024
+    },
+    "vector_db": {
+      "type": "milvus",
+      "host": "localhost",
+      "port": 19530,
+      "collection": "nara_records"
+    }
+  }
+}

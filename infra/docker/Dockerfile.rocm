@@ -1,0 +1,25 @@
+# NARA-AI AMD ROCm Docker 이미지
+# AMD Instinct MI300X, MI250 등
+
+FROM rocm/pytorch:rocm6.2_ubuntu22.04_py3.11_pytorch_release_2.5.0 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Seoul
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONIOENCODING=utf-8
+ENV PYTHONUTF8=1
+
+WORKDIR /app
+
+COPY requirements-rocm.txt ./
+RUN pip install --no-cache-dir -r requirements-rocm.txt
+
+COPY src/ ./src/
+COPY config/ ./config/
+COPY api/ ./api/
+
+VOLUME ["/models", "/data"]
+
+EXPOSE 8000 8001 8002 8080
+
+CMD ["python", "-m", "uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "8080"]

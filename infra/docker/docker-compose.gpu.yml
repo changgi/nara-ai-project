@@ -1,0 +1,75 @@
+# NARA-AI GPU 서비스 오버라이드
+# docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+
+version: "3.9"
+
+services:
+  # ─── vLLM LLM 추론 서버 (분류/메타데이터/비밀해제) ───
+  vllm-llm:
+    image: vllm/vllm-openai:v0.8.0
+    environment:
+      TZ: Asia/Seoul
+      CUDA_VISIBLE_DEVICES: "0,1"
+    volumes:
+      - ../../checkpoints:/models:ro
+    ports:
+      - "8000:8000"
+    command: >
+      --model /models/nara-sft-v1
+      --served-model-name nara-classifier-v1
+      --port 8000
+      --tensor-parallel-size 2
+      --max-model-len 4096
+      --gpu-memory-utilization 0.90
+      --dtype bfloat16
+      --enable-prefix-caching
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${VLLM_LLM_GPU_COUNT:-2}  # 런타임 설정 (하드코딩 제거)
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - nara-internal
+
+  # ─── vLLM OCR 추론 서버 (Qwen3-VL 8B) ───
+  vllm-ocr:
+    image: vllm/vllm-openai:v0.8.0
+    environment:
+      TZ: Asia/Seoul
+      CUDA_VISIBLE_DEVICES: "2"
+    volumes:
+      - ../../checkpoints:/models:ro
+    ports:
+      - "8001:8001"
+    command: >
+      --model Qwen/Qwen3-VL-8B
+      --port 8001
+      --tensor-parallel-size 1
+      --max-model-len 8192
+      --gpu-memory-utilization 0.90
+      --dtype bfloat16
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${VLLM_OCR_GPU_COUNT:-1}  # 런타임 설정
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - nara-internal
+
+networks:
+  nara-internal:
+    external: true

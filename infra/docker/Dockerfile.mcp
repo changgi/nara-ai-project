@@ -1,0 +1,29 @@
+# NARA-AI MCP 서버 Docker 이미지
+# Node.js 22 LTS + TypeScript
+
+FROM node:22-slim AS builder
+
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci --production=false
+
+COPY src/mcp-servers/ ./src/mcp-servers/
+COPY tsconfig.json ./
+
+RUN npx tsc --outDir dist
+
+FROM node:22-slim AS runtime
+
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+
+EXPOSE 3001 3002 3003 3004 3005
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD curl -f http://localhost:${PORT:-3001}/health || exit 1
+
+CMD ["node", "dist/mcp-servers/${MCP_SERVER}/index.js"]

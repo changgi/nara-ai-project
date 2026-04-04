@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-llm
+  namespace: nara-ai
+  labels:
+    app: vllm-llm
+    component: inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-llm
+  template:
+    metadata:
+      labels:
+        app: vllm-llm
+        component: inference
+    spec:
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.8.0
+          args:
+            - "--model"
+            - "/models/nara-sft-v1"
+            - "--served-model-name"
+            - "nara-classifier-v1"
+            - "--port"
+            - "8000"
+            - "--tensor-parallel-size"
+            - "2"
+            - "--max-model-len"
+            - "4096"
+            - "--gpu-memory-utilization"
+            - "0.90"
+            - "--dtype"
+            - "bfloat16"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            limits:
+              nvidia.com/gpu: "2"
+              memory: "400Gi"
+            requests:
+              nvidia.com/gpu: "2"
+              memory: "200Gi"
+          volumeMounts:
+            - name: model-storage
+              mountPath: /models
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 120
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+      volumes:
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: model-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-llm
+  namespace: nara-ai
+spec:
+  selector:
+    app: vllm-llm
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http

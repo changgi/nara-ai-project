@@ -1,0 +1,68 @@
+{
+  "dashboard": {
+    "title": "NARA-AI 시스템 현황",
+    "description": "국가기록원 AI 시스템 종합 모니터링 대시보드",
+    "tags": ["nara-ai", "production"],
+    "timezone": "Asia/Seoul",
+    "panels": [
+      {
+        "title": "GPU 사용률",
+        "type": "gauge",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "avg(DCGM_FI_DEV_GPU_UTIL)"}],
+        "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+        "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 80, "color": "yellow"}, {"value": 95, "color": "red"}]}
+      },
+      {
+        "title": "GPU 메모리 사용률",
+        "type": "gauge",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "avg(DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL * 100)"}],
+        "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "title": "vLLM 추론 레이턴시 (P99)",
+        "type": "stat",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "histogram_quantile(0.99, rate(vllm_request_duration_seconds_bucket[5m]))"}],
+        "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+        "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 2, "color": "yellow"}, {"value": 5, "color": "red"}]}
+      },
+      {
+        "title": "MCP 서버 상태",
+        "type": "stat",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "count(up{job='mcp-servers'} == 1)", "legendFormat": "Active"}],
+        "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "title": "추론 요청 처리량 (RPS)",
+        "type": "timeseries",
+        "datasource": "Prometheus",
+        "targets": [
+          {"expr": "rate(vllm_request_success_total{job='vllm-llm'}[5m])", "legendFormat": "LLM"},
+          {"expr": "rate(vllm_request_success_total{job='vllm-ocr'}[5m])", "legendFormat": "OCR"}
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}
+      },
+      {
+        "title": "Milvus 벡터 검색 레이턴시",
+        "type": "timeseries",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "histogram_quantile(0.99, rate(milvus_search_latency_bucket[5m]))"}],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}
+      },
+      {
+        "title": "파이프라인 처리 현황",
+        "type": "stat",
+        "datasource": "Prometheus",
+        "targets": [
+          {"expr": "nara_pipeline_total{status='success'}", "legendFormat": "성공"},
+          {"expr": "nara_pipeline_total{status='failed'}", "legendFormat": "실패"},
+          {"expr": "nara_pipeline_total{status='hitl_pending'}", "legendFormat": "HITL 대기"}
+        ],
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 14}
+      }
+    ]
+  }
+}

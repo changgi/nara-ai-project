@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NARA-AI - 국가기록물 AI 검색</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; color: #1a1a2e; line-height: 1.6; }
+
+        .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); color: white; padding: 2.5rem 1rem; text-align: center; }
+        .header h1 { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.5px; }
+        .header .subtitle { opacity: 0.9; font-size: 1rem; margin-top: 0.4rem; }
+        .header .org { opacity: 0.5; font-size: 0.85rem; margin-top: 0.3rem; }
+
+        .container { max-width: 860px; margin: 0 auto; padding: 1.5rem 1rem; }
+
+        /* 검색 */
+        .search-box { background: white; border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0,0,0,0.06); margin-bottom: 1.2rem; }
+        .search-row { display: flex; gap: 0.6rem; }
+        .search-input { flex: 1; padding: 0.9rem 1.2rem; border: 2px solid #e0e5ec; border-radius: 10px; font-size: 1rem; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+        .search-input:focus { border-color: #4a6cf7; box-shadow: 0 0 0 3px rgba(74,108,247,0.15); }
+        .search-btn { background: #4a6cf7; color: white; border: none; padding: 0.9rem 1.8rem; border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.2s; }
+        .search-btn:hover { background: #3a5ce5; }
+        .search-btn:active { transform: scale(0.97); }
+
+        /* 탭 */
+        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.2rem; }
+        .tab { padding: 0.5rem 1rem; border-radius: 8px; background: white; border: 1px solid #e0e5ec; cursor: pointer; font-size: 0.9rem; transition: all 0.2s; }
+        .tab.active { background: #4a6cf7; color: white; border-color: #4a6cf7; }
+        .tab:hover:not(.active) { background: #f0f3ff; }
+
+        /* 도구 카드 */
+        .tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.8rem; margin-bottom: 1.2rem; }
+        .tool-card { background: white; border-radius: 12px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.04); cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border: 1px solid transparent; }
+        .tool-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.08); border-color: #e0e5ec; }
+        .tool-card h3 { font-size: 0.95rem; margin-bottom: 0.2rem; }
+        .tool-card p { color: #888; font-size: 0.8rem; }
+
+        /* 결과 */
+        .results { background: white; border-radius: 16px; padding: 0; box-shadow: 0 4px 20px rgba(0,0,0,0.06); overflow: hidden; }
+        .result-item { padding: 1.2rem 1.5rem; border-bottom: 1px solid #f0f2f5; transition: background 0.15s; }
+        .result-item:hover { background: #fafbff; }
+        .result-item:last-child { border-bottom: none; }
+        .result-title { font-weight: 700; color: #1a1a2e; font-size: 1rem; margin-bottom: 0.3rem; }
+        .result-preview { color: #555; font-size: 0.9rem; line-height: 1.5; }
+        .result-meta { display: flex; gap: 1rem; margin-top: 0.4rem; font-size: 0.8rem; color: #4a6cf7; }
+        .result-meta span { background: #f0f3ff; padding: 0.15rem 0.5rem; border-radius: 4px; }
+
+        /* PII 도구 */
+        .tool-section { background: white; border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0,0,0,0.06); margin-bottom: 1.2rem; display: none; }
+        .tool-section.active { display: block; }
+        .tool-section h2 { font-size: 1.1rem; margin-bottom: 0.8rem; color: #1a1a2e; }
+        .tool-textarea { width: 100%; min-height: 100px; padding: 0.8rem; border: 2px solid #e0e5ec; border-radius: 10px; font-size: 0.95rem; resize: vertical; outline: none; font-family: inherit; }
+        .tool-textarea:focus { border-color: #4a6cf7; }
+        .tool-result { margin-top: 0.8rem; padding: 1rem; background: #f8f9fb; border-radius: 10px; font-size: 0.9rem; white-space: pre-wrap; }
+        .pii-tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; margin: 0.1rem; }
+        .pii-critical { background: #ffe0e0; color: #c0392b; }
+        .pii-high { background: #fff3cd; color: #856404; }
+        .pii-medium { background: #d4edda; color: #155724; }
+
+        .status-bar { text-align: center; padding: 0.8rem; color: #888; font-size: 0.85rem; }
+        #loading { display: none; text-align: center; padding: 2rem; color: #4a6cf7; font-size: 0.95rem; }
+
+        @media (max-width: 600px) {
+            .search-row { flex-direction: column; }
+            .tools { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>NARA-AI</h1>
+        <div class="subtitle">AI 기반 국가기록물 지능형 검색 / 분류 / 활용 체계</div>
+        <div class="org">행정안전부 / 국가기록원</div>
+    </div>
+
+    <div class="container">
+        <div class="search-box">
+            <div class="search-row">
+                <input type="text" class="search-input" id="query" placeholder="국가기록을 자연어로 검색하세요..." />
+                <button class="search-btn" onclick="doSearch()">검색</button>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('search')">검색</div>
+            <div class="tab" onclick="switchTab('pii')">PII 탐지</div>
+            <div class="tab" onclick="switchTab('ocr')">OCR 교정</div>
+        </div>
+
+        <div class="tools">
+            <div class="tool-card" onclick="location.href='/docs'">
+                <h3>API 문서</h3>
+                <p>REST API (Swagger)</p>
+            </div>
+            <div class="tool-card" onclick="location.href='/status'">
+                <h3>시스템 상태</h3>
+                <p>GPU/CPU 프로파일</p>
+            </div>
+            <div class="tool-card" onclick="location.href='/health'">
+                <h3>헬스체크</h3>
+                <p>서비스 상태</p>
+            </div>
+        </div>
+
+        <!-- 검색 결과 -->
+        <div id="search-section">
+            <div id="loading">검색 중...</div>
+            <div class="results" id="results"></div>
+            <div class="status-bar" id="status"></div>
+        </div>
+
+        <!-- PII 탐지 -->
+        <div class="tool-section" id="pii-section">
+            <h2>PII 탐지 및 가명처리</h2>
+            <p style="color:#888; font-size:0.85rem; margin-bottom:0.6rem;">주민번호, 전화번호, 이메일, 여권번호, 운전면허, 계좌번호를 자동 탐지하고 마스킹합니다.</p>
+            <textarea class="tool-textarea" id="pii-input" placeholder="텍스트를 입력하세요... (예: 홍길동 850101-1234567 연락처 010-1234-5678)"></textarea>
+            <button class="search-btn" style="margin-top:0.6rem;" onclick="doPII()">PII 탐지</button>
+            <div class="tool-result" id="pii-result" style="display:none;"></div>
+        </div>
+
+        <!-- OCR 교정 -->
+        <div class="tool-section" id="ocr-section">
+            <h2>OCR 후처리 교정</h2>
+            <p style="color:#888; font-size:0.85rem; margin-bottom:0.6rem;">OCR 오류 교정, 한자 병기, 날짜 정규화, 기관명 추출을 수행합니다.</p>
+            <textarea class="tool-textarea" id="ocr-input" placeholder="OCR 텍스트를 입력하세요... (예: 행정안전뷰 공공기록뭄 國家記錄)"></textarea>
+            <button class="search-btn" style="margin-top:0.6rem;" onclick="doOCR()">교정</button>
+            <div class="tool-result" id="ocr-result" style="display:none;"></div>
+        </div>
+    </div>
+
+    <script>
+    function switchTab(tab) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        event.target.classList.add('active');
+
+        document.getElementById('search-section').style.display = tab === 'search' ? 'block' : 'none';
+        document.getElementById('pii-section').style.display = tab === 'pii' ? 'block' : 'none';
+        document.getElementById('ocr-section').style.display = tab === 'ocr' ? 'block' : 'none';
+
+        // pii, ocr 섹션을 active 클래스로도 관리
+        document.getElementById('pii-section').classList.toggle('active', tab === 'pii');
+        document.getElementById('ocr-section').classList.toggle('active', tab === 'ocr');
+    }
+
+    async function doSearch() {
+        const query = document.getElementById('query').value.trim();
+        if (!query) return;
+
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('results').innerHTML = '';
+        document.getElementById('status').innerHTML = '';
+
+        try {
+            const res = await fetch('/search', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({query, top_k: 10, mode: 'auto'})
+            });
+            const data = await res.json();
+
+            let html = '';
+            if (data.results && data.results.length > 0) {
+                data.results.forEach((r, i) => {
+                    html += `<div class="result-item">
+                        <div class="result-title">[${i+1}] ${r.title}</div>
+                        <div class="result-preview">${r.content_preview}</div>
+                        <div class="result-meta">
+                            <span>${r.method}</span>
+                            <span>점수: ${r.score.toFixed(4)}</span>
+                        </div>
+                    </div>`;
+                });
+            } else {
+                html = '<div class="result-item"><div class="result-preview">검색 결과가 없습니다. python scripts/data/index_demo_data.py 로 데이터를 인덱싱하세요.</div></div>';
+            }
+            document.getElementById('results').innerHTML = html;
+            document.getElementById('status').innerHTML = `${data.total}건 / ${data.processing_time_ms.toFixed(0)}ms / ${data.mode} 모드`;
+        } catch (e) {
+            document.getElementById('results').innerHTML = `<div class="result-item"><div class="result-preview">오류: ${e.message}</div></div>`;
+        }
+        document.getElementById('loading').style.display = 'none';
+    }
+
+    async function doPII() {
+        const content = document.getElementById('pii-input').value.trim();
+        if (!content) return;
+        const el = document.getElementById('pii-result');
+
+        try {
+            const res = await fetch('/pii/detect', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({content})
+            });
+            const data = await res.json();
+
+            let html = `<strong>탐지: ${data.pii_count}건</strong>\n\n`;
+            if (data.detections.length > 0) {
+                data.detections.forEach(d => {
+                    const cls = d.severity === 'critical' ? 'pii-critical' : d.severity === 'high' ? 'pii-high' : 'pii-medium';
+                    html += `<span class="pii-tag ${cls}">${d.name} (${d.severity})</span> `;
+                });
+                html += `\n\n<strong>마스킹 결과:</strong>\n${data.masked_content}`;
+            } else {
+                html += 'PII가 감지되지 않았습니다.';
+            }
+            el.innerHTML = html;
+            el.style.display = 'block';
+        } catch (e) {
+            el.innerHTML = `오류: ${e.message}`;
+            el.style.display = 'block';
+        }
+    }
+
+    async function doOCR() {
+        const text = document.getElementById('ocr-input').value.trim();
+        if (!text) return;
+        const el = document.getElementById('ocr-result');
+
+        try {
+            const res = await fetch('/ocr/correct', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({text})
+            });
+            const data = await res.json();
+
+            let html = `<strong>교정 결과</strong> (신뢰도: ${(data.confidence * 100).toFixed(0)}%, ${data.corrections_count}건 교정)\n\n`;
+            html += `<strong>원본:</strong> ${data.original}\n`;
+            html += `<strong>교정:</strong> ${data.corrected}\n\n`;
+            if (data.corrections.length > 0) {
+                html += '<strong>교정 내역:</strong>\n';
+                data.corrections.forEach(c => {
+                    html += `  [${c.type}] "${c.from}" → "${c.to}"\n`;
+                });
+            }
+            if (data.agencies.length > 0) {
+                html += `\n<strong>추출된 기관명:</strong> ${data.agencies.join(', ')}`;
+            }
+            if (data.dates.length > 0) {
+                html += `\n<strong>추출된 날짜:</strong> ${data.dates.join(', ')}`;
+            }
+            el.innerHTML = html;
+            el.style.display = 'block';
+        } catch (e) {
+            el.innerHTML = `오류: ${e.message}`;
+            el.style.display = 'block';
+        }
+    }
+
+    document.getElementById('query').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') doSearch();
+    });
+    </script>
+</body>
+</html>

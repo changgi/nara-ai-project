@@ -1,0 +1,140 @@
+# NARA-AI CI/CD 파이프라인
+# PR 생성 시 자동 실행: 린트, 타입체크, 테스트, 보안 스캔
+
+name: NARA-AI CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "22"
+
+jobs:
+  # ─── Python 린트 + 타입체크 ───
+  python-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install ruff mypy pytest
+          pip install -r requirements-ml.txt || true
+
+      - name: Ruff lint
+        run: ruff check src/ tests/
+
+      - name: Ruff format check
+        run: ruff format --check src/ tests/
+
+      - name: MyPy type check
+        run: mypy src/ --ignore-missing-imports --no-error-summary || true
+
+  # ─── TypeScript 린트 + 타입체크 ───
+  typescript-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        run: npx eslint src/mcp-servers/ || true
+
+  # ─── 단위 테스트 ───
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: [python-quality]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio httpx pyyaml
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v --tb=short
+
+  # ─── 보안 스캐닝 (4중) ───
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Semgrep
+      - name: Semgrep SAST
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/python
+            p/typescript
+            p/owasp-top-ten
+            p/secrets
+
+      # Trivy
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: 1
+
+      # TruffleHog (시크릿 탐지)
+      - name: TruffleHog secret scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: .
+          extra_args: --only-verified
+
+  # ─── PII 스캔 (한국 개인정보) ───
+  pii-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for Korean PII
+        run: |
+          echo "주민등록번호 패턴 검색..."
+          if grep -rn '[0-9]\{6\}-[1-4][0-9]\{6\}' src/ data/ config/ 2>/dev/null; then
+            echo "::error::주민등록번호 패턴이 코드에서 발견되었습니다!"
+            exit 1
+          fi
+          echo "PII 스캔 통과"
+
+  # ─── 통합 테스트 (서비스 기동 불필요한 것만) ───
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install pytest httpx pymilvus
+
+      - name: Run boundary verification tests
+        run: pytest tests/integration/ -v --tb=short -k "not health and not connection"
