@@ -45,3 +45,5 @@ Thumbs.db
 
 # 임시 작업공간 (감사추적 제외하고)
 _workspace/audit/  # 감사추적은 보존
+
+.vercel

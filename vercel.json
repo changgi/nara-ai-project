@@ -1,58 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "builds": [
-    {
-      "src": "api/server.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "static/**",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "api/server.py"
-    },
-    {
-      "src": "/health",
-      "dest": "api/server.py"
-    },
-    {
-      "src": "/status",
-      "dest": "api/server.py"
-    },
-    {
-      "src": "/search",
-      "dest": "api/server.py"
-    },
-    {
-      "src": "/pii/(.*)",
-      "dest": "api/server.py"
-    },
-    {
-      "src": "/ocr/(.*)",
-      "dest": "api/server.py"
-    },
-    {
-      "src": "/docs",
-      "dest": "api/server.py"
-    },
-    {
-      "src": "/openapi.json",
-      "dest": "api/server.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "static/$1"
-    }
-  ],
-  "functions": {
-    "api/server.py": {
-      "memory": 256,
-      "maxDuration": 30
-    }
-  }
+  "rewrites": [
+    { "source": "/health", "destination": "/api/health" },
+    { "source": "/status", "destination": "/api/status" },
+    { "source": "/search", "destination": "/api/search" },
+    { "source": "/pii/:path*", "destination": "/api/pii/:path*" },
+    { "source": "/ocr/:path*", "destination": "/api/ocr/:path*" },
+    { "source": "/docs", "destination": "/api/docs" },
+    { "source": "/openapi.json", "destination": "/api/openapi.json" }
+  ]
 }
