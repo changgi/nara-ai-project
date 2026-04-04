@@ -618,20 +618,27 @@ async def get_stats():
         import httpx as _hx
         async with _hx.AsyncClient(timeout=10) as _c:
             _headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
-            brm_r = await _c.get(f"{SUPABASE_URL}/rest/v1/brm_nodes?select=level&limit=20000", headers=_headers)
-            if brm_r.status_code == 200:
-                brm_data = brm_r.json()
-                brm_levels = {}
-                for row in brm_data:
-                    lv = row.get("level", "?")
-                    brm_levels[lv] = brm_levels.get(lv, 0) + 1
-                stats["brm_db"] = {"total": len(brm_data), "levels": brm_levels}
+            # BRM count
+            brm_r = await _c.get(f"{SUPABASE_URL}/rest/v1/brm_nodes?select=level", headers={**_headers, "Range": "0-0", "Prefer": "count=exact"})
+            brm_total = int(brm_r.headers.get("content-range", "0/0").split("/")[-1]) if brm_r.status_code in (200, 206) else 0
+            # BRM 레벨별 count (SQL RPC 대신 로컬 BRM 트리 사용)
+            brm_levels = {}
+            try:
+                from src.brm.parser import get_brm_tree
+                tree = get_brm_tree()
+                brm_levels = tree.get_stats().get("levels", {})
+                brm_total = tree.get_stats().get("total_nodes", brm_total)
+            except ImportError:
+                pass
+            stats["brm_db"] = {"total": brm_total, "levels": brm_levels}
 
-            bsc_r = await _c.get(f"{SUPABASE_URL}/rest/v1/bsc_nodes?select=id&limit=1", headers={**_headers, "Prefer": "count=exact"})
-            stats["bsc_total"] = int(bsc_r.headers.get("content-range", "0/0").split("/")[-1]) if bsc_r.status_code == 200 else 0
+            # BSC count
+            bsc_r = await _c.get(f"{SUPABASE_URL}/rest/v1/bsc_nodes?select=id", headers={**_headers, "Range": "0-0", "Prefer": "count=exact"})
+            stats["bsc_total"] = int(bsc_r.headers.get("content-range", "0/0").split("/")[-1]) if bsc_r.status_code in (200, 206) else 0
 
-            cul_r = await _c.get(f"{SUPABASE_URL}/rest/v1/culture_nodes?select=id&limit=1", headers={**_headers, "Prefer": "count=exact"})
-            stats["culture_total"] = int(cul_r.headers.get("content-range", "0/0").split("/")[-1]) if cul_r.status_code == 200 else 0
+            # Culture count
+            cul_r = await _c.get(f"{SUPABASE_URL}/rest/v1/culture_nodes?select=id", headers={**_headers, "Range": "0-0", "Prefer": "count=exact"})
+            stats["culture_total"] = int(cul_r.headers.get("content-range", "0/0").split("/")[-1]) if cul_r.status_code in (200, 206) else 0
     except Exception:
         pass
 
