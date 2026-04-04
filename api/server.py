@@ -92,12 +92,17 @@ async def root():
 @app.get("/health")
 async def health():
     """헬스체크"""
-    from config.settings import settings
+    mode = "cloud"
+    try:
+        from config.settings import settings
+        mode = "cpu" if settings.is_cpu_mode() else "gpu"
+    except ImportError:
+        pass
     return {
         "status": "ok",
         "project": "NARA-AI",
         "version": "1.0.0",
-        "mode": "cpu" if settings.is_cpu_mode() else "gpu",
+        "mode": mode,
         "timestamp": datetime.now(KST).isoformat(),
     }
 
@@ -105,19 +110,25 @@ async def health():
 @app.get("/status")
 async def status():
     """시스템 현황"""
-    from config.settings import settings
-    from src.pipeline.pipeline_executor import PipelineStage, HITLGate
-
-    return {
-        "project": "NARA-AI",
-        "version": "1.0.0",
-        "mode": "cpu" if settings.is_cpu_mode() else "gpu",
-        "pipeline_stages": len(list(PipelineStage)),
-        "hitl_gates": len(HITLGate.REQUIRED_ACTIONS),
-        "mcp_tools": 47,
-        "settings": settings.dump(),
-        "timestamp": datetime.now(KST).isoformat(),
-    }
+    try:
+        from config.settings import settings
+        from src.pipeline.pipeline_executor import PipelineStage, HITLGate
+        return {
+            "project": "NARA-AI", "version": "1.0.0",
+            "mode": "cpu" if settings.is_cpu_mode() else "gpu",
+            "pipeline_stages": len(list(PipelineStage)),
+            "hitl_gates": len(HITLGate.REQUIRED_ACTIONS),
+            "mcp_tools": 47,
+            "settings": settings.dump(),
+            "timestamp": datetime.now(KST).isoformat(),
+        }
+    except ImportError:
+        return {
+            "project": "NARA-AI", "version": "1.0.0",
+            "mode": "cloud (Vercel)",
+            "pipeline_stages": 11, "hitl_gates": 4, "mcp_tools": 47,
+            "timestamp": datetime.now(KST).isoformat(),
+        }
 
 
 @app.post("/search", response_model=SearchResponse)
@@ -163,27 +174,60 @@ async def search(req: SearchRequest):
 @app.post("/pii/detect")
 async def detect_pii(req: PIIRequest):
     """PII 탐지 + 마스킹"""
-    from src.agents.redaction.agent import RedactionAgent
-
-    agent = RedactionAgent()
-    detections = agent.detect_pii(req.content)
-    masked = agent.mask_content(req.content, detections)
-
-    return {
-        "original_length": len(req.content),
-        "pii_count": len(detections),
-        "detections": [
-            {"type": d.pii_type, "name": d.pii_name, "severity": d.severity, "masked": d.masked_text}
-            for d in detections
-        ],
-        "masked_content": masked,
-    }
+    try:
+        from src.agents.redaction.agent import RedactionAgent
+        agent = RedactionAgent()
+        detections = agent.detect_pii(req.content)
+        masked = agent.mask_content(req.content, detections)
+        return {
+            "original_length": len(req.content),
+            "pii_count": len(detections),
+            "detections": [
+                {"type": d.pii_type, "name": d.pii_name, "severity": d.severity, "masked": d.masked_text}
+                for d in detections
+            ],
+            "masked_content": masked,
+        }
+    except ImportError:
+        # Vercel 폴백: 인라인 PII 탐지
+        import re
+        patterns = {
+            "resident_id": (r"\d{6}-[1-4]\d{6}", "주민등록번호", "critical"),
+            "phone": (r"01[0-9]-?\d{3,4}-?\d{4}", "전화번호", "high"),
+            "email": (r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "이메일", "medium"),
+        }
+        detections = []
+        masked = req.content
+        for ptype, (pat, name, sev) in patterns.items():
+            for m in re.finditer(pat, req.content):
+                txt = m.group()
+                mk = txt[:2] + "*" * (len(txt) - 2)
+                detections.append({"type": ptype, "name": name, "severity": sev, "masked": mk})
+                masked = masked[:m.start()] + mk + masked[m.end():]
+        return {"original_length": len(req.content), "pii_count": len(detections), "detections": detections, "masked_content": masked}
 
 
 @app.post("/ocr/correct")
 async def correct_ocr(req: OCRCorrectionRequest):
     """OCR 후처리 (맞춤법 교정, 한자 병기, 구조화)"""
-    from src.ocr.postprocess.corrector import OCRPostProcessor
+    try:
+        from src.ocr.postprocess.corrector import OCRPostProcessor
+    except ImportError:
+        # Vercel 폴백: 인라인 OCR 교정
+        corrections_map = {"행정안전뷰": "행정안전부", "공공기록뭄": "공공기록물", "국가기록완": "국가기록원", "보존기갼": "보존기간"}
+        hanja_map = {"國家": "國家(국가)", "記錄": "記錄(기록)", "機關": "機關(기관)"}
+        corrected = req.text
+        corrections = []
+        for wrong, right in corrections_map.items():
+            if wrong in corrected:
+                corrected = corrected.replace(wrong, right)
+                corrections.append({"type": "domain", "from": wrong, "to": right})
+        for h, hr in hanja_map.items():
+            if h in corrected:
+                corrected = corrected.replace(h, hr)
+                corrections.append({"type": "hanja", "from": h, "to": hr})
+        return {"original": req.text, "corrected": corrected, "confidence": 1.0 - len(corrections) * 0.02, "corrections_count": len(corrections), "corrections": corrections, "agencies": [], "dates": []}
+    # 로컬 모드
 
     processor = OCRPostProcessor()
     result = processor.correct(req.text)
