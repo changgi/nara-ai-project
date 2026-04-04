@@ -365,27 +365,49 @@ async def correct_ocr(req: OCRRequest):
 
 @app.post("/classify")
 async def classify_record(req: ClassifyRequest):
-    """BRM 업무기능 분류"""
-    # 인라인 규칙 기반 분류 (GPU 없이 동작)
-    content_lower = (req.title + " " + req.content + " " + req.agency).lower()
+    """BRM 업무기능 분류 (실제 17,634건 BRM 데이터 기반)"""
+    text = f"{req.title} {req.content} {req.agency}"
+
+    # 실제 BRM 트리 사용 시도
+    try:
+        from src.brm.parser import get_brm_tree
+        tree = get_brm_tree()
+        if tree._loaded:
+            results = tree.classify_text(text)
+            if results:
+                top = results[0]
+                return {
+                    "brm_code": top["brm_name"],
+                    "brm_name": top["brm_name"],
+                    "confidence": top["confidence"],
+                    "reasoning": f"BRM 17,634건 데이터 기반 분류. '{req.title}'에서 '{top['brm_name']}' 관련 키워드 매칭.",
+                    "alternatives": results[1:4],
+                    "data_source": "행정안전부 정부기능별분류체계 (17,634건)",
+                }
+    except ImportError:
+        pass
+
+    # 폴백: 인라인 키워드 분류
+    content_lower = text.lower()
     scores = {}
     keywords_map = {
-        "A": ["행정", "기록물", "공무원", "정부혁신", "인사", "조직"],
-        "B": ["경찰", "소방", "재난", "치안", "안전"],
-        "C": ["외교", "통일", "남북", "전쟁", "독립운동", "국제"],
-        "D": ["국방", "군사", "안보", "병역", "방위"],
-        "E": ["교육", "학교", "교과", "입시", "장학"],
-        "F": ["문화", "관광", "유산", "박물관", "콘텐츠", "실록"],
-        "G": ["환경", "생태", "탄소", "미세먼지", "폐기물"],
-        "H": ["복지", "수급", "저출생", "노인", "장애", "아동"],
-        "I": ["보건", "의료", "코로나", "감염", "건강"],
-        "J": ["농업", "수산", "식량", "스마트팜", "해양"],
-        "K": ["산업", "반도체", "에너지", "중소기업", "소상공인"],
-        "L": ["교통", "철도", "항공", "물류"],
-        "M": ["통신", "5G", "디지털", "네트워크"],
-        "N": ["국토", "택지", "도시재생", "주택"],
-        "O": ["과학", "기술", "R&D", "우주", "양자", "AI"],
-        "P": ["재정", "세금", "국채", "금융", "예산"],
+        "일반공공행정": ["행정", "기록물", "공무원", "정부혁신", "인사", "조직"],
+        "공공질서및안전": ["경찰", "소방", "재난", "치안", "안전"],
+        "통일·외교": ["외교", "통일", "남북", "전쟁", "독립운동", "국제"],
+        "국방": ["국방", "군사", "안보", "병역", "방위"],
+        "교육": ["교육", "학교", "교과", "입시", "장학"],
+        "문화체육관광": ["문화", "관광", "유산", "박물관", "콘텐츠", "실록"],
+        "환경": ["환경", "생태", "탄소", "미세먼지", "폐기물"],
+        "사회복지": ["복지", "수급", "저출생", "노인", "장애", "아동"],
+        "보건": ["보건", "의료", "코로나", "감염", "건강"],
+        "농림": ["농업", "축산", "식량", "스마트팜"],
+        "해양수산": ["수산", "해양", "어업", "항만"],
+        "산업·통상·중소기업": ["산업", "반도체", "에너지", "중소기업", "소상공인", "통상"],
+        "교통및물류": ["교통", "철도", "항공", "물류", "도로"],
+        "통신": ["통신", "5G", "디지털", "네트워크", "방송"],
+        "지역개발": ["국토", "택지", "도시재생", "주택", "지역"],
+        "과학기술": ["과학", "기술", "R&D", "우주", "양자", "AI", "연구"],
+        "재정·세제·금융": ["재정", "세금", "국채", "금융", "예산", "세제"],
     }
     for code, kws in keywords_map.items():
         match_count = sum(1 for kw in kws if kw in content_lower)
@@ -393,21 +415,22 @@ async def classify_record(req: ClassifyRequest):
             scores[code] = match_count / len(kws)
 
     if not scores:
-        scores["A"] = 0.3
+        scores["일반공공행정"] = 0.3
 
     sorted_codes = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     top = sorted_codes[0]
     alternatives = [
-        {"brm_code": c, "brm_name": BRM_CATEGORIES.get(c, ""), "confidence": round(s, 2)}
+        {"brm_name": c, "confidence": round(s, 2)}
         for c, s in sorted_codes[1:4]
     ]
 
     return {
         "brm_code": top[0],
-        "brm_name": BRM_CATEGORIES.get(top[0], ""),
+        "brm_name": top[0],
         "confidence": round(min(top[1] * 2, 0.95), 2),
-        "reasoning": f"키워드 매칭 기반 분류. '{req.title}'에서 {BRM_CATEGORIES.get(top[0], '')} 관련 키워드 탐지.",
+        "reasoning": f"키워드 매칭 기반 분류. '{req.title}'에서 '{top[0]}' 관련 키워드 탐지.",
         "alternatives": alternatives,
+        "data_source": "인라인 폴백 (BRM CSV 미로드)",
     }
 
 
@@ -501,6 +524,57 @@ async def redaction_review(req: RedactionReviewRequest):
         "hitl_required": True,
         "hitl_warning": "이 결과는 AI 추천이며, 최종 비밀해제 결정은 반드시 기록물관리 전문가가 수행해야 합니다.",
     }
+
+
+@app.get("/brm/tree")
+async def brm_tree():
+    """BRM 분류체계 트리 (17,634건)"""
+    try:
+        from src.brm.parser import get_brm_tree
+        tree = get_brm_tree()
+        return {
+            "stats": tree.get_stats(),
+            "top_categories": tree.get_top_categories(),
+            "data_source": "행정안전부 정부기능별분류체계 (2024.11.30)",
+        }
+    except ImportError:
+        return {
+            "stats": {"total_nodes": 0},
+            "top_categories": [{"name": k, "children_count": 0} for k in BRM_CATEGORIES.values()],
+            "data_source": "인라인 폴백 (BRM CSV 미로드)",
+        }
+
+
+@app.get("/brm/children/{parent_id}")
+async def brm_children(parent_id: str):
+    """BRM 하위 분류 조회"""
+    try:
+        from src.brm.parser import get_brm_tree
+        tree = get_brm_tree()
+        return {"parent_id": parent_id, "children": tree.get_children(parent_id)}
+    except ImportError:
+        return {"parent_id": parent_id, "children": []}
+
+
+@app.get("/brm/search")
+async def brm_search(q: str, level: str = "", limit: int = 20):
+    """BRM 검색"""
+    try:
+        from src.brm.parser import get_brm_tree
+        tree = get_brm_tree()
+        return {"query": q, "results": tree.search(q, level=level, limit=limit)}
+    except ImportError:
+        return {"query": q, "results": []}
+
+
+@app.get("/brm/api")
+async def brm_api_proxy(page: int = 1, per_page: int = 10):
+    """공공데이터포털 BRM API 프록시"""
+    try:
+        from src.brm.parser import fetch_brm_api
+        return await fetch_brm_api(page=page, per_page=per_page)
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/stats")
