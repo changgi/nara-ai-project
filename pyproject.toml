@@ -4,6 +4,10 @@ version = "1.0.0"
 description = "AI 기반 국가기록물 지능형 검색·분류·활용 체계"
 requires-python = ">=3.11"
 license = "MIT"
+dependencies = [
+    "fastapi>=0.115.0",
+    "pydantic>=2.10.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
