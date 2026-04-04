@@ -1,0 +1,336 @@
+# -*- coding: utf-8 -*-
+"""
+NARA-AI 유니버설 API — 로컬 / Vercel / AWS Lambda / Docker 통합
+
+하나의 FastAPI 앱이 환경을 자동 감지하여 최적 모드로 동작한다.
+src/ 모듈이 있으면 풀 기능, 없으면 인라인 폴백으로 동작.
+
+환경 감지:
+  VERCEL=1           → Vercel Serverless
+  AWS_LAMBDA_*       → AWS Lambda
+  DOCKER=1 / /.dockerenv → Docker 컨테이너
+  그 외              → 로컬 개발 환경
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import time
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, FileResponse
+from pydantic import BaseModel, Field
+
+# ═══════════════════════════════════════════
+# UTF-8 보장
+# ═══════════════════════════════════════════
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+KST = timezone(timedelta(hours=9))
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+# ═══════════════════════════════════════════
+# 환경 감지
+# ═══════════════════════════════════════════
+def detect_env() -> str:
+    """실행 환경 자동 감지"""
+    if os.getenv("VERCEL"):
+        return "vercel"
+    if os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+        return "aws_lambda"
+    if os.getenv("DOCKER") or Path("/.dockerenv").exists():
+        return "docker"
+    return "local"
+
+
+ENV = detect_env()
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://wmrvypokepngnbcgsjkn.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtcnZ5cG9rZXBuZ25iY2dzamtuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4ODA4OTAsImV4cCI6MjA5MDQ1Njg5MH0.NK2DrPR2n_q8ChqjOrh0LRDCC0l6ZKHIQSj_jqjLRHE"
+)
+
+
+# ═══════════════════════════════════════════
+# 모듈 동적 로딩 (src/ 있으면 풀 기능, 없으면 폴백)
+# ═══════════════════════════════════════════
+HAS_SRC = False
+try:
+    from config.settings import settings as _settings
+    HAS_SRC = True
+except ImportError:
+    _settings = None
+
+# CPU 검색 엔진
+_cpu_embedder = None
+def get_cpu_embedder():
+    global _cpu_embedder
+    if _cpu_embedder is not None:
+        return _cpu_embedder
+    try:
+        from src.search.embedding.cpu_embedder import CPUEmbedder
+        db_path = str(_settings.CPU_VECTORS_PATH) if _settings else str(BASE_DIR / "data" / "db" / "cpu_vectors.pkl")
+        if Path(db_path).exists():
+            _cpu_embedder = CPUEmbedder(db_path=db_path)
+            return _cpu_embedder
+    except ImportError:
+        pass
+    return None
+
+# PII 탐지기
+def get_pii_detector():
+    try:
+        from src.agents.redaction.agent import RedactionAgent
+        return RedactionAgent()
+    except ImportError:
+        return None
+
+# OCR 교정기
+def get_ocr_corrector():
+    try:
+        from src.ocr.postprocess.corrector import OCRPostProcessor
+        return OCRPostProcessor()
+    except ImportError:
+        return None
+
+
+# ═══════════════════════════════════════════
+# 인라인 폴백 (src/ 없을 때 사용)
+# ═══════════════════════════════════════════
+PII_PATTERNS = {
+    "resident_id": (r"\d{6}-[1-4]\d{6}", "주민등록번호", "critical"),
+    "phone": (r"01[0-9]-?\d{3,4}-?\d{4}", "전화번호", "high"),
+    "email": (r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "이메일", "medium"),
+    "passport": (r"[A-Z]{1,2}\d{7,8}", "여권번호", "critical"),
+    "driver_license": (r"\d{2}-\d{6}-\d{2}", "운전면허번호", "critical"),
+    "account": (r"\d{3,4}-\d{2,6}-\d{2,6}", "계좌번호", "high"),
+}
+
+OCR_CORRECTIONS = {
+    "행정안전뷰": "행정안전부", "공공기록뭄": "공공기록물",
+    "국가기록완": "국가기록원", "보존기갼": "보존기간",
+    "대한밍국": "대한민국", "비밀해재": "비밀해제",
+    "메타테이터": "메타데이터", "기록관리기괸": "기록관리기관",
+}
+HANJA_MAP = {
+    "國家": "國家(국가)", "記錄": "記錄(기록)", "機關": "機關(기관)",
+    "文書": "文書(문서)", "保存": "保存(보존)", "行政": "行政(행정)",
+    "政府": "政府(정부)", "法律": "法律(법률)", "公開": "公開(공개)",
+    "秘密": "秘密(비밀)",
+}
+
+
+def inline_detect_pii(content: str) -> dict:
+    detections = []
+    masked = content
+    for ptype, (pat, name, sev) in PII_PATTERNS.items():
+        for m in re.finditer(pat, content):
+            txt = m.group()
+            mk = txt[:2] + "*" * (len(txt) - 2)
+            detections.append({"type": ptype, "name": name, "severity": sev, "masked": mk})
+    for ptype, (pat, name, sev) in PII_PATTERNS.items():
+        for m in reversed(list(re.finditer(pat, masked))):
+            txt = m.group()
+            mk = txt[:2] + "*" * (len(txt) - 2)
+            masked = masked[:m.start()] + mk + masked[m.end():]
+    return {"pii_count": len(detections), "detections": detections, "masked_content": masked}
+
+
+def inline_correct_ocr(text: str) -> dict:
+    corrected = text
+    corrections = []
+    for wrong, right in OCR_CORRECTIONS.items():
+        if wrong in corrected:
+            corrected = corrected.replace(wrong, right)
+            corrections.append({"type": "domain", "from": wrong, "to": right})
+    for h, hr in HANJA_MAP.items():
+        if h in corrected:
+            corrected = corrected.replace(h, hr)
+            corrections.append({"type": "hanja", "from": h, "to": hr})
+    agencies = list(set(re.findall(r'[가-힣]{2,10}(?:부|처|청|원|위원회|공단)', corrected)))
+    dates = re.findall(r'\d{4}-\d{2}-\d{2}|\d{4}년\s?\d{1,2}월\s?\d{1,2}일', corrected)
+    return {
+        "original": text, "corrected": corrected,
+        "confidence": max(0.5, 1.0 - len(corrections) * 0.02),
+        "corrections_count": len(corrections), "corrections": corrections,
+        "agencies": agencies, "dates": dates,
+    }
+
+
+async def supabase_search(query: str, top_k: int = 10) -> list[dict]:
+    """Supabase REST API 검색 (Vercel/AWS 폴백)"""
+    import httpx
+    words = [w.strip() for w in query.split() if len(w.strip()) >= 2]
+    if not words:
+        return []
+    conditions = " or ".join(f"title.ilike.%25{w}%25,content.ilike.%25{w}%25" for w in words)
+    url = f"{SUPABASE_URL}/rest/v1/nara_records?or=({conditions})&select=id,title,content,agency&limit={top_k}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+            })
+            data = r.json() if r.status_code == 200 else []
+    except Exception:
+        data = []
+    results = []
+    for row in data:
+        text = (row.get("title", "") + " " + row.get("content", "")).lower()
+        match_count = sum(1 for w in words if w.lower() in text)
+        score = match_count / len(words) if words else 0
+        results.append({
+            "id": row.get("id", ""), "title": row.get("title", ""),
+            "content_preview": row.get("content", "")[:200],
+            "score": round(score, 4), "method": "supabase",
+        })
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results[:top_k]
+
+
+# ═══════════════════════════════════════════
+# FastAPI 앱
+# ═══════════════════════════════════════════
+app = FastAPI(
+    title="NARA-AI",
+    description="AI 기반 국가기록물 지능형 검색/분류/활용 체계 (유니버설 API)",
+    version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 정적 파일 (로컬/Docker에서만)
+static_dir = BASE_DIR / "static"
+if static_dir.exists() and ENV in ("local", "docker"):
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+# ─── 요청/응답 모델 ───
+
+class SearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500)
+    top_k: int = Field(default=10, ge=1, le=100)
+    mode: str = Field(default="auto")
+
+class PIIRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+
+class OCRRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
+# ─── 엔드포인트 ───
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    """웹 UI"""
+    for path in [BASE_DIR / "public" / "index.html", static_dir / "index.html"]:
+        if path.exists():
+            return FileResponse(str(path))
+    return HTMLResponse("<h1>NARA-AI</h1><p>웹 UI: static/index.html 또는 public/index.html 필요</p>")
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "project": "NARA-AI",
+        "version": "1.0.0",
+        "env": ENV,
+        "has_src": HAS_SRC,
+        "has_cpu_index": get_cpu_embedder() is not None,
+        "timestamp": datetime.now(KST).isoformat(),
+    }
+
+
+@app.get("/status")
+async def status():
+    info: dict[str, Any] = {
+        "project": "NARA-AI", "version": "1.0.0", "env": ENV,
+        "has_src": HAS_SRC,
+        "pipeline_stages": 11, "hitl_gates": 4, "mcp_tools": 47,
+        "timestamp": datetime.now(KST).isoformat(),
+    }
+    if HAS_SRC and _settings:
+        info["settings"] = _settings.dump()
+    return info
+
+
+@app.post("/search")
+async def search(req: SearchRequest):
+    start = time.monotonic()
+
+    # 1순위: 로컬 CPU 인덱스
+    embedder = get_cpu_embedder()
+    if embedder:
+        results = embedder.search(req.query, top_k=req.top_k)
+        search_results = [
+            {"id": r.id, "title": r.title, "content_preview": r.content_preview,
+             "score": r.score, "method": r.method}
+            for r in results
+        ]
+        mode = "cpu"
+    else:
+        # 2순위: Supabase 클라우드 검색
+        search_results = await supabase_search(req.query, req.top_k)
+        mode = "cloud (Supabase)"
+
+    duration = (time.monotonic() - start) * 1000
+    return {
+        "query": req.query, "results": search_results,
+        "total": len(search_results), "processing_time_ms": round(duration, 1),
+        "mode": mode, "env": ENV,
+    }
+
+
+@app.post("/pii/detect")
+async def detect_pii(req: PIIRequest):
+    agent = get_pii_detector()
+    if agent:
+        detections = agent.detect_pii(req.content)
+        masked = agent.mask_content(req.content, detections)
+        return {
+            "original_length": len(req.content),
+            "pii_count": len(detections),
+            "detections": [
+                {"type": d.pii_type, "name": d.pii_name, "severity": d.severity, "masked": d.masked_text}
+                for d in detections
+            ],
+            "masked_content": masked,
+        }
+    else:
+        result = inline_detect_pii(req.content)
+        return {"original_length": len(req.content), **result}
+
+
+@app.post("/ocr/correct")
+async def correct_ocr(req: OCRRequest):
+    corrector = get_ocr_corrector()
+    if corrector:
+        result = corrector.correct(req.text)
+        return {
+            "original": result.original, "corrected": result.corrected,
+            "confidence": result.confidence,
+            "corrections_count": len(result.corrections),
+            "corrections": result.corrections,
+            "agencies": corrector.extract_agencies(result.corrected),
+            "dates": corrector.extract_dates(result.corrected),
+        }
+    else:
+        return inline_correct_ocr(req.text)

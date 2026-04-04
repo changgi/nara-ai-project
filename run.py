@@ -299,7 +299,7 @@ def start_server(host: str = "127.0.0.1", port: int = 8002):
     print()
 
     try:
-        run_cmd([PY, "-m", "uvicorn", "src.search.embedding.server:app",
+        run_cmd([PY, "-m", "uvicorn", "api.app:app",
                  "--host", host, "--port", str(port), "--reload"])
     except KeyboardInterrupt:
         print("\n  서버 종료")
