@@ -263,22 +263,14 @@ class BRMTree:
         boosted_hits.sort(key=lambda x: x[0], reverse=True)
         direct_hits = boosted_hits
 
-        seen_paths = set()
+        # 전체 매칭 결과 구성 (유사도 순 정렬, 중복 제거 없이 전체 반환)
+        max_possible = max(len(key_words) * 3.0 + 0.5, 1)
         results = []
         for score, node, matched in direct_hits:
             path_parts = [p.strip() for p in node.path.split(">>") if p.strip()]
-            # 상위 3레벨로 중복 제거
-            dedup_key = ">>".join(path_parts[:3]) if len(path_parts) >= 3 else node.path
-            if dedup_key in seen_paths:
-                continue
-            seen_paths.add(dedup_key)
+            confidence = round(min(score / max_possible * 1.5, 0.99), 3)
+            confidence = max(confidence, 0.01)
 
-            # 정규화된 신뢰도
-            max_possible = len(key_words) * 3.0 + 0.5  # 최대 가능 점수
-            confidence = round(min(score / max(max_possible, 1) * 1.5, 0.98), 2)
-            confidence = max(confidence, 0.3)  # 최소 30%
-
-            # 2단계에서 확인된 영역과 일치하는지
             node_area = ">>".join(path_parts[:2]) if len(path_parts) >= 2 else ""
             area_rank = next((i for i, (k, _) in enumerate(top_area_votes) if k == node_area), 99)
 
@@ -289,9 +281,9 @@ class BRMTree:
                 "path": node.path,
                 "path_parts": path_parts,
                 "confidence": confidence,
-                "agencies": node.agencies[:5],
+                "score": round(score, 2),
+                "agencies": node.agencies[:3],
                 "matched_keywords": [m for m in matched if not m.startswith("(")][:5],
-                "context_keywords": [m for m in matched if m.startswith("(")][:3],
                 "analysis": {
                     "phase1_key_words": key_words[:5],
                     "phase1_direct_hits": len(direct_hits),
@@ -302,8 +294,6 @@ class BRMTree:
                     "phase3_score": round(score, 2),
                 },
             })
-            if len(results) >= 5:
-                break
 
         return results
 

@@ -363,54 +363,63 @@ async def correct_ocr(req: OCRRequest):
 
 # ─── 새 엔드포인트: 분류, 메타데이터, 비밀해제, 통계, 파이프라인 ───
 
+class ClassifyRequestFull(BaseModel):
+    title: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1)
+    agency: str = ""
+    limit: int = Field(default=30, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+
+
 @app.post("/classify")
-async def classify_record(req: ClassifyRequest):
-    """BRM 업무기능 분류 (실제 17,634건 BRM 데이터 기반)"""
+async def classify_record(req: ClassifyRequestFull):
+    """BRM 분류 — 전체 유사도 리스트 (높은 순 정렬)"""
     text = f"{req.title} {req.content} {req.agency}"
 
-    # 실제 BRM 트리 사용 (5계층 전체 경로)
     try:
         from src.brm.parser import get_brm_tree
         tree = get_brm_tree()
         if tree._loaded:
-            results = tree.classify_text(text)
-            if results:
-                top = results[0]
-                path_parts = top.get("path_parts", [])
-                path_display = " >> ".join(path_parts) if path_parts else top.get("path", "")
-                analysis = top.get("analysis", {})
-                matched = top.get("matched_keywords", [])
-                ctx = top.get("context_keywords", [])
-                return {
-                    "brm_code": top.get("node_id", ""),
+            all_results = tree.classify_text(text)
+            total = len(all_results)
+            page = all_results[req.offset:req.offset + req.limit]
+
+            top = all_results[0] if all_results else None
+            analysis = top.get("analysis", {}) if top else {}
+
+            return {
+                "total": total,
+                "offset": req.offset,
+                "limit": req.limit,
+                "top": {
                     "brm_name": top["name"],
                     "brm_level": top["level"],
-                    "brm_path": path_display,
-                    "brm_path_parts": path_parts,
+                    "brm_path": " >> ".join(top.get("path_parts", [])),
                     "confidence": top["confidence"],
-                    "matched_keywords": matched,
-                    "context_keywords": ctx,
-                    "reasoning": (
-                        f"맥락 기반 3단계 분석 완료.\n"
-                        f"[1단계 추정] 핵심 주제어: {analysis.get('phase1_key_words',[])} → 직접 매칭 {analysis.get('phase1_direct_hits',0)}건 발견\n"
-                        f"[2단계 추적] 최다 지지 영역: '{analysis.get('phase2_top_area','')}' (점수 {analysis.get('phase2_area_score',0)})\n"
-                        f"[3단계 정밀화] '{top['name']}' ({top['level']}) 최종 선택 (점수 {analysis.get('phase3_score',0)})\n"
-                        f"매칭 키워드: {', '.join(matched)}"
-                    ),
+                    "matched_keywords": top.get("matched_keywords", []),
                     "agencies": top.get("agencies", []),
-                    "analysis": analysis,
-                    "alternatives": [
-                        {
-                            "name": a["name"], "level": a["level"],
-                            "path": " >> ".join(a.get("path_parts", [])),
-                            "confidence": a["confidence"],
-                            "matched_keywords": a.get("matched_keywords", []),
-                            "analysis": a.get("analysis", {}),
-                        }
-                        for a in results[1:4]
-                    ],
-                    "data_source": "행정안전부 정부기능별분류체계 (17,634건) - 3단계 반복 분석",
-                }
+                } if top else None,
+                "reasoning": (
+                    f"맥락 기반 3단계 분석.\n"
+                    f"[1단계] 주제어: {analysis.get('phase1_key_words',[])} → {analysis.get('phase1_direct_hits',0)}건 매칭\n"
+                    f"[2단계] 최다 영역: '{analysis.get('phase2_top_area','')}' ({analysis.get('phase2_area_score',0)}점)\n"
+                    f"[3단계] 최종: '{top['name']}' ({top['level']})" if top else "매칭 없음"
+                ),
+                "results": [
+                    {
+                        "rank": req.offset + i + 1,
+                        "name": r["name"],
+                        "level": r["level"],
+                        "path": " >> ".join(r.get("path_parts", [])),
+                        "confidence": r["confidence"],
+                        "score": r.get("score", 0),
+                        "matched_keywords": r.get("matched_keywords", []),
+                        "agencies": r.get("agencies", []),
+                    }
+                    for i, r in enumerate(page)
+                ],
+                "data_source": "행정안전부 정부기능별분류체계 (17,634건)",
+            }
     except ImportError:
         pass
 
