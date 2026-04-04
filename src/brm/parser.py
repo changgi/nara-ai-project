@@ -161,29 +161,62 @@ class BRMTree:
         }
 
     def classify_text(self, text: str) -> list[dict[str, Any]]:
-        """텍스트를 BRM 분류 (키워드 매칭)"""
-        text_lower = text.lower()
-        scores: dict[str, float] = {}
+        """텍스트를 BRM 5계층 전체 경로로 분류
 
-        # 소기능 레벨에서 매칭
+        반환: [{"node_id", "name", "level", "path", "path_parts", "confidence", "agencies"}]
+        path_parts: ["정책분야", "정책영역", "대기능", "중기능", "소기능"]
+        """
+        text_lower = text.lower()
+        candidates: list[tuple[float, Any]] = []
+
         for node in self.nodes.values():
             if node.level not in ("소기능", "중기능", "대기능"):
                 continue
-            name_words = node.name.replace("·", " ").replace("/", " ").split()
-            match_count = sum(1 for w in name_words if len(w) >= 2 and w in text_lower)
-            if match_count > 0:
-                # 상위 경로에서 정책분야 추출
-                path_parts = node.path.split(">>")
-                top_name = path_parts[0].strip() if path_parts else node.name
-                score = match_count / max(len(name_words), 1)
-                if top_name not in scores or scores[top_name] < score:
-                    scores[top_name] = score
+            # 이름의 각 단어가 텍스트에 포함되는지 확인
+            name_clean = node.name.replace("·", " ").replace("/", " ").replace("(", " ").replace(")", " ")
+            name_words = [w for w in name_clean.split() if len(w) >= 2]
+            if not name_words:
+                continue
+            match_count = sum(1 for w in name_words if w in text_lower)
+            if match_count == 0:
+                continue
 
-        sorted_results = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:5]
-        return [
-            {"brm_name": name, "confidence": round(min(score * 1.5, 0.95), 2)}
-            for name, score in sorted_results
-        ]
+            score = match_count / len(name_words)
+            # 레벨이 세밀할수록 보너스 (소기능 > 중기능 > 대기능)
+            level_bonus = {"소기능": 0.1, "중기능": 0.05, "대기능": 0.0}
+            score += level_bonus.get(node.level, 0)
+
+            candidates.append((score, node))
+
+        # 점수순 정렬, 상위 10개
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        top = candidates[:10]
+
+        # 중복 경로 제거 (같은 상위 경로면 가장 세밀한 것만)
+        seen_paths = set()
+        results = []
+        for score, node in top:
+            # 경로를 정책분야>>정책영역>>... 형태로 분해
+            path_parts = [p.strip() for p in node.path.split(">>") if p.strip()]
+            # 상위 3단계까지를 키로 사용 (중복 제거)
+            path_key = ">>".join(path_parts[:3]) if len(path_parts) >= 3 else node.path
+            if path_key in seen_paths:
+                continue
+            seen_paths.add(path_key)
+
+            results.append({
+                "node_id": node.id,
+                "name": node.name,
+                "level": node.level,
+                "path": node.path,
+                "path_parts": path_parts,
+                "confidence": round(min(score * 1.5, 0.98), 2),
+                "agencies": node.agencies[:5],
+            })
+            if len(results) >= 5:
+                break
+
+        return results
 
 
 # 글로벌 BRM 트리 (싱글톤)

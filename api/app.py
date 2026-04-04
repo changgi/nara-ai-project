@@ -368,7 +368,7 @@ async def classify_record(req: ClassifyRequest):
     """BRM 업무기능 분류 (실제 17,634건 BRM 데이터 기반)"""
     text = f"{req.title} {req.content} {req.agency}"
 
-    # 실제 BRM 트리 사용 시도
+    # 실제 BRM 트리 사용 (5계층 전체 경로)
     try:
         from src.brm.parser import get_brm_tree
         tree = get_brm_tree()
@@ -376,12 +376,26 @@ async def classify_record(req: ClassifyRequest):
             results = tree.classify_text(text)
             if results:
                 top = results[0]
+                path_parts = top.get("path_parts", [])
+                # 5계층 경로 구성
+                path_display = " >> ".join(path_parts) if path_parts else top.get("path", "")
                 return {
-                    "brm_code": top["brm_name"],
-                    "brm_name": top["brm_name"],
+                    "brm_code": top.get("node_id", ""),
+                    "brm_name": top["name"],
+                    "brm_level": top["level"],
+                    "brm_path": path_display,
+                    "brm_path_parts": path_parts,
                     "confidence": top["confidence"],
-                    "reasoning": f"BRM 17,634건 데이터 기반 분류. '{req.title}'에서 '{top['brm_name']}' 관련 키워드 매칭.",
-                    "alternatives": results[1:4],
+                    "reasoning": f"BRM 17,634건 기반. '{req.title}'이(가) '{top['name']}' ({top['level']})에 매칭. 경로: {path_display}",
+                    "agencies": top.get("agencies", []),
+                    "alternatives": [
+                        {
+                            "name": a["name"], "level": a["level"],
+                            "path": " >> ".join(a.get("path_parts", [])),
+                            "confidence": a["confidence"],
+                        }
+                        for a in results[1:4]
+                    ],
                     "data_source": "행정안전부 정부기능별분류체계 (17,634건)",
                 }
     except ImportError:
