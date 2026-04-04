@@ -97,6 +97,7 @@ textarea:focus{border-color:#4a6cf7}
 <div class="section" id="sec-brm">
 <div class="card"><h2>BRM 정부기능별분류체계 (17,634건)</h2><p style="color:#888;font-size:.8rem;margin-bottom:.5rem">행정안전부 정부기능별분류체계 5계층: 정책분야 → 정책영역 → 대기능 → 중기능 → 소기능</p><div class="input-row"><input id="brm-q" placeholder="BRM 검색... (예: 반도체, 교육, 환경, 국방)" /><select id="brm-lv" style="width:120px"><option value="">전체 레벨</option><option value="정책분야">정책분야</option><option value="정책영역">정책영역</option><option value="대기능">대기능</option><option value="중기능">중기능</option><option value="소기능">소기능</option></select><button class="btn" onclick="searchBRM()">검색</button></div></div>
 <div class="card" id="brm-top" style="display:none"><h2>정책분야 (대분류 17개)</h2><div id="brm-top-list"></div></div>
+<div class="card" id="brm-mindmap-card"><h2>마인드맵</h2><p style="color:#888;font-size:.8rem;margin-bottom:.4rem">정책분야를 클릭하면 하위 계층이 펼쳐집니다</p><div id="brm-mindmap" style="overflow-x:auto;min-height:400px;background:#fafbff;border-radius:10px;position:relative"></div></div>
 <div class="card" id="brm-results" style="display:none"></div>
 </div>
 <!-- 통계 -->
@@ -134,7 +135,33 @@ async function doPII(){const el=$('pr');el.style.display='none';try{const d=awai
 async function doOCR(){const el=$('or2');el.style.display='none';try{const d=await api('/ocr/correct',{text:$('oi').value});let h=`<h2>교정 (${(d.confidence*100).toFixed(0)}%)</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;margin-bottom:.4rem"><div><strong>원본:</strong><div class="result-box">${d.original}</div></div><div><strong>교정:</strong><div class="result-box" style="background:#e8f5e9">${d.corrected}</div></div></div>`;if(d.corrections?.length>0){h+='<div><strong>교정:</strong> '+d.corrections.map(c=>`<span class="tag ${c.type==='hanja'?'tag-purple':'tag-blue'}">${c.from}→${c.to}</span>`).join(' ')+'</div>'}if(d.agencies?.length>0)h+=`<div style="margin-top:.3rem"><strong>기관:</strong> ${d.agencies.map(a=>`<span class="tag tag-green">${a}</span>`).join(' ')}</div>`;el.innerHTML=h;el.style.display='block'}catch(e){el.innerHTML=`<div style="color:red">${e.message}</div>`;el.style.display='block'}}
 
 // 통계
-async function loadBRMTop(){try{const d=await api('/brm/tree');const el=$('brm-top-list');let h='<div class="brm-grid">';d.top_categories?.forEach(c=>{h+=`<span class="brm-chip" onclick="searchBRMCat('${esc(c.name)}')">${c.name} (${c.children_count})</span>`});h+=`</div><div style="margin-top:.5rem;font-size:.8rem;color:#888">총 ${d.stats?.total_nodes?.toLocaleString()||0}건 | ${d.stats?.unique_agencies||0}개 기관 | ${d.data_source||''}</div>`;el.innerHTML=h;$('brm-top').style.display='block'}catch(e){}}
+// ─── 마인드맵 ───
+const MM_COLORS=['#4a6cf7','#7c4dff','#00bcd4','#4caf50','#ff9800','#e91e63','#795548','#607d8b','#009688','#ff5722','#3f51b5','#8bc34a','#ffc107','#9c27b0','#00897b','#d32f2f','#1565c0'];
+let mmExpanded={};
+async function renderMindmap(){const el=$('brm-mindmap');el.innerHTML='<div style="padding:1rem;color:#888">로딩 중...</div>';try{const d=await api('/brm/tree');const cats=d.top_categories||[];const centerX=80,centerY=220,radiusX=350,radiusY=180;const w=Math.max(900,radiusX*2+300),h=Math.max(500,radiusY*2+100);let svg=`<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg" style="font-family:Pretendard,-apple-system,sans-serif">`;
+// 중앙 노드
+svg+=`<circle cx="${centerX+radiusX}" cy="${centerY}" r="45" fill="#1a1a2e"/>`;
+svg+=`<text x="${centerX+radiusX}" y="${centerY-8}" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">BRM</text>`;
+svg+=`<text x="${centerX+radiusX}" y="${centerY+10}" text-anchor="middle" fill="#aaa" font-size="8">${(d.stats?.total_nodes||0).toLocaleString()}건</text>`;
+// 정책분야 노드
+cats.forEach((c,i)=>{const angle=(i/(cats.length))*Math.PI*2-Math.PI/2;const nx=centerX+radiusX+Math.cos(angle)*radiusX;const ny=centerY+Math.sin(angle)*radiusY;const col=MM_COLORS[i%MM_COLORS.length];
+// 연결선
+svg+=`<line x1="${centerX+radiusX}" y1="${centerY}" x2="${nx}" y2="${ny}" stroke="${col}" stroke-width="2" stroke-opacity=".3"/>`;
+// 노드
+const rr=32;svg+=`<circle cx="${nx}" cy="${ny}" r="${rr}" fill="${col}" style="cursor:pointer" onclick="expandMM('${esc(c.id)}','${esc(c.name)}',${nx},${ny},'${col}')"/>`;
+svg+=`<text x="${nx}" y="${ny-4}" text-anchor="middle" fill="#fff" font-size="8" font-weight="600" style="pointer-events:none">${c.name.length>6?c.name.slice(0,6)+'…':c.name}</text>`;
+svg+=`<text x="${nx}" y="${ny+8}" text-anchor="middle" fill="rgba(255,255,255,.7)" font-size="7" style="pointer-events:none">(${c.children_count})</text>`;
+});
+// 펼쳐진 하위 노드
+for(const[pid,children]of Object.entries(mmExpanded)){const parent=children._parent;if(!parent)continue;children.items?.forEach((ch,j)=>{const spread=Math.min(children.items.length,8);const baseAngle=Math.atan2(parent.y-centerY,parent.x-(centerX+radiusX));const angleSpread=0.6;const angle=baseAngle-angleSpread/2+((j/(Math.max(spread-1,1)))*angleSpread);const dist=110;const cx2=parent.x+Math.cos(angle)*dist;const cy2=parent.y+Math.sin(angle)*dist;
+svg+=`<line x1="${parent.x}" y1="${parent.y}" x2="${cx2}" y2="${cy2}" stroke="${parent.col}" stroke-width="1.5" stroke-opacity=".25"/>`;
+svg+=`<rect x="${cx2-40}" y="${cy2-12}" width="80" height="24" rx="4" fill="${parent.col}" fill-opacity=".15" stroke="${parent.col}" stroke-width="1" style="cursor:pointer" onclick="expandMM('${esc(ch.id)}','${esc(ch.name)}',${cx2},${cy2},'${parent.col}')"/>`;
+svg+=`<text x="${cx2}" y="${cy2+4}" text-anchor="middle" fill="${parent.col}" font-size="7.5" font-weight="500" style="pointer-events:none">${ch.name.length>10?ch.name.slice(0,10)+'…':ch.name}</text>`;
+})}
+svg+=`</svg>`;el.innerHTML=svg}catch(e){el.innerHTML=`<div style="color:red;padding:1rem">${e.message}</div>`}}
+async function expandMM(id,name,x,y,col){if(mmExpanded[id]){delete mmExpanded[id];renderMindmap();return}try{const d=await api('/brm/children/'+encodeURIComponent(id));mmExpanded[id]={items:d.children?.slice(0,8)||[],_parent:{x,y,col}};renderMindmap()}catch(e){}}
+
+async function loadBRMTop(){renderMindmap();try{const d=await api('/brm/tree');const el=$('brm-top-list');let h='<div class="brm-grid">';d.top_categories?.forEach(c=>{h+=`<span class="brm-chip" onclick="searchBRMCat('${esc(c.name)}')">${c.name} (${c.children_count})</span>`});h+=`</div><div style="margin-top:.5rem;font-size:.8rem;color:#888">총 ${d.stats?.total_nodes?.toLocaleString()||0}건 | ${d.stats?.unique_agencies||0}개 기관 | ${d.data_source||''}</div>`;el.innerHTML=h;$('brm-top').style.display='block'}catch(e){}}
 function searchBRMCat(name){$('brm-q').value=name;searchBRM()}
 let brmOffset=0;
 async function searchBRM(append){const q=$('brm-q').value.trim();if(!q)return;const lv=$('brm-lv')?.value||'';const el=$('brm-results');if(!append){brmOffset=0;el.style.display='block';el.innerHTML='<div style="padding:.8rem;color:#4a6cf7">검색 중...</div>'}try{const d=await api('/brm/search?q='+encodeURIComponent(q)+'&level='+encodeURIComponent(lv)+'&limit=50&offset='+brmOffset);let h=append?el.innerHTML.replace(/<div id="brm-more".*?<\/div>/,''):'';if(!append)h=`<h2>BRM 검색: "${q}" (총 ${(d.total||0).toLocaleString()}건)</h2>`;if(d.results?.length>0){d.results.forEach(r=>{const parts=r.path?.split('>>')||[];const pathHtml=parts.map((p,i)=>`<span class="tag ${['tag-blue','tag-purple','tag-green','tag-orange','tag-gray'][i]||'tag-gray'}">${p.trim()}</span>`).join(' → ');h+=`<div class="result-item" style="cursor:default"><div class="result-title">${r.name} <span class="tag tag-orange">${r.level}</span></div><div style="margin:.3rem 0">${pathHtml}</div>${r.agencies?.length?`<div style="font-size:.75rem;color:#888">수행기관: ${r.agencies.join(', ')}</div>`:''}</div>`});brmOffset+=d.results.length;if(brmOffset<(d.total||0)){h+=`<div id="brm-more" style="text-align:center;padding:.8rem"><button class="btn btn-outline" onclick="searchBRM(true)">더보기 (${brmOffset}/${(d.total||0).toLocaleString()}건)</button></div>`}}else if(!append){h+='<div style="padding:.8rem;color:#888">결과 없음. 다른 키워드를 시도하세요.</div>'}el.innerHTML=h}catch(e){if(!append)el.innerHTML=`<div style="color:red">${e.message}</div>`}}
