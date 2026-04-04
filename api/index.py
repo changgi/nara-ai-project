@@ -131,13 +131,56 @@ def correct_ocr(req: OCRRequest):
     }
 
 
+SUPABASE_URL = "https://wmrvypokepngnbcgsjkn.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtcnZ5cG9rZXBuZ25iY2dzamtuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4ODA4OTAsImV4cCI6MjA5MDQ1Njg5MH0.NK2DrPR2n_q8ChqjOrh0LRDCC0l6ZKHIQSj_jqjLRHE"
+
 @app.post("/search")
 def search(req: SearchRequest):
+    import time
+    import httpx
+    start = time.monotonic()
+
+    # 검색어를 단어로 분리하여 각각 ILIKE 검색
+    words = [w.strip() for w in req.query.split() if len(w.strip()) >= 2]
+    if not words:
+        return {"query": req.query, "results": [], "total": 0, "processing_time_ms": 0, "mode": "cloud"}
+
+    # 각 단어에 대해 OR 조건으로 검색
+    conditions = " or ".join(f"title.ilike.%25{w}%25,content.ilike.%25{w}%25" for w in words)
+    url = f"{SUPABASE_URL}/rest/v1/nara_records?or=({conditions})&select=id,title,content,agency&limit={req.top_k}"
+
+    try:
+        r = httpx.get(url, headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+        }, timeout=10)
+        data = r.json() if r.status_code == 200 else []
+    except Exception:
+        data = []
+
+    # 관련도 점수 계산 (매칭 단어 수 기반)
+    results = []
+    for row in data:
+        text = (row.get("title", "") + " " + row.get("content", "")).lower()
+        match_count = sum(1 for w in words if w.lower() in text)
+        score = match_count / len(words) if words else 0
+        results.append({
+            "id": row.get("id", ""),
+            "title": row.get("title", ""),
+            "content_preview": row.get("content", "")[:200],
+            "score": round(score, 4),
+            "method": "supabase",
+        })
+
+    # 점수 기준 정렬
+    results.sort(key=lambda x: x["score"], reverse=True)
+    results = results[:req.top_k]
+
+    duration = (time.monotonic() - start) * 1000
     return {
         "query": req.query,
-        "results": [],
-        "total": 0,
-        "processing_time_ms": 0,
-        "mode": "cloud",
-        "message": "클라우드 모드: 로컬 서버(run.bat)에서 검색 데이터를 인덱싱 후 사용하세요.",
+        "results": results,
+        "total": len(results),
+        "processing_time_ms": round(duration, 1),
+        "mode": "cloud (Supabase)",
     }
