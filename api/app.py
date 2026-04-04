@@ -380,6 +380,7 @@ async def classify_record(req: ClassifyRequest):
                 path_display = " >> ".join(path_parts) if path_parts else top.get("path", "")
                 analysis = top.get("analysis", {})
                 matched = top.get("matched_keywords", [])
+                ctx = top.get("context_keywords", [])
                 return {
                     "brm_code": top.get("node_id", ""),
                     "brm_name": top["name"],
@@ -388,11 +389,12 @@ async def classify_record(req: ClassifyRequest):
                     "brm_path_parts": path_parts,
                     "confidence": top["confidence"],
                     "matched_keywords": matched,
+                    "context_keywords": ctx,
                     "reasoning": (
-                        f"3단계 분석 완료.\n"
-                        f"[1단계 이산화] 정책분야 '{analysis.get('phase1_area','')}' 영역 (누적 {analysis.get('phase1_area_score',0)}점)\n"
-                        f"[2단계 추상화] '{analysis.get('phase2_domain','')}' 영역으로 범위 축소\n"
-                        f"[3단계 정밀화] '{top['name']}' ({top['level']}) 최종 매칭\n"
+                        f"맥락 기반 3단계 분석 완료.\n"
+                        f"[1단계 추정] 핵심 주제어: {analysis.get('phase1_key_words',[])} → 직접 매칭 {analysis.get('phase1_direct_hits',0)}건 발견\n"
+                        f"[2단계 추적] 최다 지지 영역: '{analysis.get('phase2_top_area','')}' (점수 {analysis.get('phase2_area_score',0)})\n"
+                        f"[3단계 정밀화] '{top['name']}' ({top['level']}) 최종 선택 (점수 {analysis.get('phase3_score',0)})\n"
                         f"매칭 키워드: {', '.join(matched)}"
                     ),
                     "agencies": top.get("agencies", []),
