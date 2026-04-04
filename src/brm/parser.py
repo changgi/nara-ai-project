@@ -166,48 +166,138 @@ class BRMTree:
         }
 
     def classify_text(self, text: str) -> list[dict[str, Any]]:
-        """텍스트를 BRM 5계층 전체 경로로 분류
+        """BRM 3단계 반복 분류 (이산화 → 추상화 → 정밀화)
 
-        반환: [{"node_id", "name", "level", "path", "path_parts", "confidence", "agencies"}]
-        path_parts: ["정책분야", "정책영역", "대기능", "중기능", "소기능"]
+        1단계 이산화: 텍스트에서 키워드 추출, 전체 BRM과 1차 매칭
+        2단계 추상화: 1차 후보의 상위 정책분야/정책영역을 추출, 영역 범위 축소
+        3단계 정밀화: 축소된 영역 내에서 소기능 레벨까지 정밀 매칭
+
+        반환: 각 결과에 분석 과정(analysis)이 포함됨
         """
         text_lower = text.lower()
-        candidates: list[tuple[float, Any]] = []
+        import re
+        text_words = set(re.findall(r'[가-힣]{2,}', text))
+        text_words_lower = {w.lower() for w in text_words}
+
+        # 일반적인 단어 (BRM 전체에 광범위하게 등장) → 가중치 감쇄
+        COMMON_WORDS = {
+            "추진", "지원", "관리", "운영", "사업", "계획", "정책", "행정", "기획",
+            "조사", "분석", "평가", "감사", "교육", "연구", "개발", "협력", "조정",
+            "총괄", "기반", "체계", "시스템", "서비스", "정보", "데이터", "통계",
+            "예산", "재정", "인력", "조직", "제도", "법령", "규정", "기준",
+            "홍보", "소통", "대외", "국제", "안전", "보호", "복지", "진흥",
+            "확대", "강화", "개선", "혁신", "고도화", "활성화",
+        }
+        def word_weight(w: str) -> float:
+            """단어의 구체성에 따른 가중치 (일반적일수록 낮음)"""
+            if w in COMMON_WORDS:
+                return 0.15  # 일반 단어: 15%
+            if len(w) >= 4:
+                return 1.2   # 긴 단어 (구체적): 120%
+            return 1.0       # 기본
+
+        # ═══ 1단계: 이산화 (전체 BRM 1차 스캔) ═══
+        phase1_scores: dict[str, float] = {}  # 정책분야별 점수
+        phase1_hits: dict[str, list] = {}     # 정책분야별 매칭 노드
 
         for node in self.nodes.values():
-            if node.level not in ("소기능", "중기능", "대기능"):
+            name_clean = node.name.replace("·", " ").replace("/", " ").replace("(", " ").replace(")", " ")
+            name_words = {w for w in name_clean.split() if len(w) >= 2}
+            if not name_words:
                 continue
-            # 이름의 각 단어가 텍스트에 포함되는지 확인
+
+            # 양방향 매칭 (일반 단어 감쇄 적용)
+            forward = sum(word_weight(w) for w in name_words if w in text_lower)
+            reverse = sum(word_weight(w) for w in text_words_lower if w in node.name.lower())
+            match_count = max(forward, reverse)
+
+            if match_count == 0:
+                continue
+
+            score = match_count / max(len(name_words), 1)
+            # 경로에서 정책분야 추출
+            path_parts = [p.strip() for p in node.path.split(">>") if p.strip()]
+            top_area = path_parts[0] if path_parts else "기타"
+
+            if top_area not in phase1_scores:
+                phase1_scores[top_area] = 0
+                phase1_hits[top_area] = []
+            phase1_scores[top_area] += score
+            phase1_hits[top_area].append((score, node))
+
+        if not phase1_scores:
+            return []
+
+        # ═══ 2단계: 추상화 (상위 영역 축소) ═══
+        # 정책분야별 누적 점수로 상위 3개 영역 선택
+        sorted_areas = sorted(phase1_scores.items(), key=lambda x: x[1], reverse=True)
+        top_areas = [area for area, _ in sorted_areas[:3]]
+
+        # 선택된 영역 내에서 정책영역 수준 추상화
+        phase2_domains: dict[str, float] = {}  # "정책분야>>정책영역" 별 점수
+        for area in top_areas:
+            for score, node in phase1_hits.get(area, []):
+                path_parts = [p.strip() for p in node.path.split(">>") if p.strip()]
+                domain_key = ">>".join(path_parts[:2]) if len(path_parts) >= 2 else area
+                phase2_domains[domain_key] = phase2_domains.get(domain_key, 0) + score
+
+        sorted_domains = sorted(phase2_domains.items(), key=lambda x: x[1], reverse=True)
+        top_domains = [d for d, _ in sorted_domains[:5]]
+
+        # ═══ 3단계: 정밀화 (소기능 레벨 정밀 매칭) ═══
+        phase3_candidates: list[tuple[float, Any]] = []
+
+        for node in self.nodes.values():
+            path_parts = [p.strip() for p in node.path.split(">>") if p.strip()]
+            domain_key = ">>".join(path_parts[:2]) if len(path_parts) >= 2 else ""
+
+            # 2단계에서 선택된 영역에 속하는 노드만
+            if domain_key not in top_domains:
+                continue
+
             name_clean = node.name.replace("·", " ").replace("/", " ").replace("(", " ").replace(")", " ")
             name_words = [w for w in name_clean.split() if len(w) >= 2]
             if not name_words:
                 continue
-            match_count = sum(1 for w in name_words if w in text_lower)
-            if match_count == 0:
+
+            # 정밀 매칭: 단어별 가중치 (일반 단어 감쇄)
+            score = 0.0
+            matched_words = []
+            for w in name_words:
+                wt = word_weight(w)
+                if w in text_lower:
+                    score += wt
+                    matched_words.append(w)
+                elif any(w in tw for tw in text_words_lower):
+                    score += wt * 0.5  # 부분 매칭
+                    matched_words.append(f"~{w}")
+
+            if score == 0:
                 continue
 
-            score = match_count / len(name_words)
-            # 레벨이 세밀할수록 보너스 (소기능 > 중기능 > 대기능)
-            level_bonus = {"소기능": 0.1, "중기능": 0.05, "대기능": 0.0}
+            score = score / len(name_words)
+            # 레벨 보너스
+            level_bonus = {"소기능": 0.15, "중기능": 0.10, "대기능": 0.05, "정책영역": 0.02, "정책분야": 0.0}
             score += level_bonus.get(node.level, 0)
+            # 경로 깊이 보너스 (더 구체적일수록)
+            score += len(path_parts) * 0.02
 
-            candidates.append((score, node))
+            phase3_candidates.append((score, node, matched_words))
 
-        # 점수순 정렬, 상위 10개
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        top = candidates[:10]
+        # 점수순 정렬
+        phase3_candidates.sort(key=lambda x: x[0], reverse=True)
 
-        # 중복 경로 제거 (같은 상위 경로면 가장 세밀한 것만)
-        seen_paths = set()
+        # 중복 경로 제거 + 결과 구성
+        seen = set()
         results = []
-        for score, node in top:
-            # 경로를 정책분야>>정책영역>>... 형태로 분해
+        for score, node, matched in phase3_candidates:
             path_parts = [p.strip() for p in node.path.split(">>") if p.strip()]
-            # 상위 3단계까지를 키로 사용 (중복 제거)
-            path_key = ">>".join(path_parts[:3]) if len(path_parts) >= 3 else node.path
-            if path_key in seen_paths:
+            dedup_key = ">>".join(path_parts[:3]) if len(path_parts) >= 3 else node.path
+            if dedup_key in seen:
                 continue
-            seen_paths.add(path_key)
+            seen.add(dedup_key)
+
+            confidence = round(min(score * 1.2, 0.98), 2)
 
             results.append({
                 "node_id": node.id,
@@ -215,8 +305,16 @@ class BRMTree:
                 "level": node.level,
                 "path": node.path,
                 "path_parts": path_parts,
-                "confidence": round(min(score * 1.5, 0.98), 2),
+                "confidence": confidence,
                 "agencies": node.agencies[:5],
+                "matched_keywords": matched[:5],
+                "analysis": {
+                    "phase1_area": path_parts[0] if path_parts else "",
+                    "phase1_area_score": round(phase1_scores.get(path_parts[0] if path_parts else "", 0), 2),
+                    "phase2_domain": ">>".join(path_parts[:2]) if len(path_parts) >= 2 else "",
+                    "phase3_level": node.level,
+                    "phase3_match_ratio": f"{len(matched)}/{len(node.name.split())}",
+                },
             })
             if len(results) >= 5:
                 break

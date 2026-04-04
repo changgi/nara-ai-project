@@ -377,8 +377,9 @@ async def classify_record(req: ClassifyRequest):
             if results:
                 top = results[0]
                 path_parts = top.get("path_parts", [])
-                # 5계층 경로 구성
                 path_display = " >> ".join(path_parts) if path_parts else top.get("path", "")
+                analysis = top.get("analysis", {})
+                matched = top.get("matched_keywords", [])
                 return {
                     "brm_code": top.get("node_id", ""),
                     "brm_name": top["name"],
@@ -386,17 +387,27 @@ async def classify_record(req: ClassifyRequest):
                     "brm_path": path_display,
                     "brm_path_parts": path_parts,
                     "confidence": top["confidence"],
-                    "reasoning": f"BRM 17,634건 기반. '{req.title}'이(가) '{top['name']}' ({top['level']})에 매칭. 경로: {path_display}",
+                    "matched_keywords": matched,
+                    "reasoning": (
+                        f"3단계 분석 완료.\n"
+                        f"[1단계 이산화] 정책분야 '{analysis.get('phase1_area','')}' 영역 (누적 {analysis.get('phase1_area_score',0)}점)\n"
+                        f"[2단계 추상화] '{analysis.get('phase2_domain','')}' 영역으로 범위 축소\n"
+                        f"[3단계 정밀화] '{top['name']}' ({top['level']}) 최종 매칭\n"
+                        f"매칭 키워드: {', '.join(matched)}"
+                    ),
                     "agencies": top.get("agencies", []),
+                    "analysis": analysis,
                     "alternatives": [
                         {
                             "name": a["name"], "level": a["level"],
                             "path": " >> ".join(a.get("path_parts", [])),
                             "confidence": a["confidence"],
+                            "matched_keywords": a.get("matched_keywords", []),
+                            "analysis": a.get("analysis", {}),
                         }
                         for a in results[1:4]
                     ],
-                    "data_source": "행정안전부 정부기능별분류체계 (17,634건)",
+                    "data_source": "행정안전부 정부기능별분류체계 (17,634건) - 3단계 반복 분석",
                 }
     except ImportError:
         pass
