@@ -571,14 +571,15 @@ async def brm_children(parent_id: str):
 
 
 @app.get("/brm/search")
-async def brm_search(q: str, level: str = "", limit: int = 20):
-    """BRM 검색"""
+async def brm_search(q: str, level: str = "", limit: int = 50, offset: int = 0):
+    """BRM 검색 (페이지네이션)"""
     try:
         from src.brm.parser import get_brm_tree
         tree = get_brm_tree()
-        return {"query": q, "results": tree.search(q, level=level, limit=limit)}
+        result = tree.search(q, level=level, limit=limit, offset=offset)
+        return {"query": q, **result}
     except ImportError:
-        return {"query": q, "results": []}
+        return {"query": q, "results": [], "total": 0, "offset": 0, "limit": limit}
 
 
 @app.get("/brm/api")

@@ -127,24 +127,29 @@ class BRMTree:
             for c in sorted(parent.children, key=lambda x: x.name)
         ]
 
-    def search(self, keyword: str, level: str = "", limit: int = 20) -> list[dict[str, Any]]:
-        """BRM 키워드 검색"""
-        results = []
+    def search(self, keyword: str, level: str = "", limit: int = 50, offset: int = 0) -> dict[str, Any]:
+        """BRM 키워드 검색 (페이지네이션, 전체 건수 포함)"""
+        all_matches = []
         keyword_lower = keyword.lower()
         for node in self.nodes.values():
             if level and node.level != level:
                 continue
             if keyword_lower in node.name.lower() or keyword_lower in node.path.lower():
-                results.append({
+                all_matches.append({
                     "id": node.id,
                     "name": node.name,
                     "level": node.level,
                     "path": node.path,
                     "agencies": node.agencies[:3],
                 })
-                if len(results) >= limit:
-                    break
-        return results
+
+        total = len(all_matches)
+        # 레벨 우선순위 정렬: 정책분야 > 정책영역 > 대기능 > 중기능 > 소기능
+        level_order = {"정책분야": 0, "정책영역": 1, "대기능": 2, "중기능": 3, "소기능": 4}
+        all_matches.sort(key=lambda x: (level_order.get(x["level"], 9), x["name"]))
+
+        page = all_matches[offset:offset + limit]
+        return {"results": page, "total": total, "offset": offset, "limit": limit}
 
     def get_stats(self) -> dict[str, Any]:
         """통계"""
