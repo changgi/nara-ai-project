@@ -220,8 +220,99 @@ timeline.forEach((t, i) => {
 s8.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.8, y: 4.3, w: 8.4, h: 0.8, fill: { color: C.lightGray }, rectRadius: 0.1 });
 s8.addText("웹 데모:  https://nara-ai-project.vercel.app   |   GitHub:  github.com/changgi/nara-ai-project", { x: 1.0, y: 4.3, w: 8.0, h: 0.8, fontSize: 14, fontFace: "Calibri", color: C.accent, valign: "middle", align: "center", margin: 0 });
 
+// ═══════════════════════════════════════
+// Slide 9: 유니버설 배포 아키텍처
+// ═══════════════════════════════════════
+let s9 = pres.addSlide();
+s9.background = { fill: C.lightGray };
+s9.addText("유니버설 배포 아키텍처", { x: 0.8, y: 0.3, w: 8.4, h: 0.7, fontSize: 36, fontFace: "Arial Black", color: C.text });
+s9.addText("하나의 코드 (api/app.py) → 4개 환경에서 동일하게 동작", { x: 0.8, y: 0.9, w: 8.4, h: 0.4, fontSize: 14, fontFace: "Calibri", color: C.gray });
+
+const deploys = [
+  { env: "로컬 (Windows/Linux/macOS)", cmd: "python -m uvicorn api.app:app", mode: "CPU 검색 (TF-IDF+BM25)", color: "2196F3" },
+  { env: "Vercel (클라우드)", cmd: "vercel deploy --prod", mode: "Supabase REST 검색", color: "000000" },
+  { env: "AWS Lambda", cmd: "sam deploy (Mangum 어댑터)", mode: "Supabase / 자동 폴백", color: "FF9900" },
+  { env: "Docker 컨테이너", cmd: "docker run -p 8080:8080", mode: "CPU 검색 + src/ 풀 기능", color: "2496ED" },
+];
+deploys.forEach((d, i) => {
+  const y = 1.5 + i * 0.95;
+  s9.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.8, y: y, w: 8.4, h: 0.85, fill: { color: C.white }, rectRadius: 0.1, shadow: { type: "outer", color: "000000", blur: 3, offset: 1, angle: 135, opacity: 0.06 } });
+  s9.addShape(pres.shapes.RECTANGLE, { x: 0.8, y: y, w: 0.15, h: 0.85, fill: { color: d.color } });
+  s9.addText(d.env, { x: 1.2, y: y + 0.05, w: 2.8, h: 0.35, fontSize: 14, fontFace: "Calibri", color: C.text, bold: true, margin: 0 });
+  s9.addText(d.cmd, { x: 1.2, y: y + 0.4, w: 2.8, h: 0.35, fontSize: 11, fontFace: "Consolas", color: C.gray, margin: 0 });
+  s9.addText(d.mode, { x: 6.5, y: y, w: 2.5, h: 0.85, fontSize: 12, fontFace: "Calibri", color: C.accent, valign: "middle", margin: 0 });
+});
+
+// ═══════════════════════════════════════
+// Slide 10: 하드웨어 자동 적응
+// ═══════════════════════════════════════
+let s10 = pres.addSlide();
+s10.background = { fill: C.white };
+s10.addText("하드웨어 자동 적응 (12종 GPU + 4종 CPU)", { x: 0.8, y: 0.3, w: 8.4, h: 0.7, fontSize: 32, fontFace: "Arial Black", color: C.text });
+
+const hwRows = [
+  { hw: "B200 x16", tier: "데이터센터", model: "8B", quant: "none", tp: "4" },
+  { hw: "H100 x8", tier: "데이터센터", model: "8B", quant: "none", tp: "4" },
+  { hw: "RTX 5090", tier: "워크스테이션", model: "8B", quant: "none", tp: "1-2" },
+  { hw: "RTX 4060 (8GB)", tier: "소비자", model: "3B", quant: "int8", tp: "1" },
+  { hw: "RTX 3060 (12GB)", tier: "소비자", model: "3B", quant: "int8", tp: "1" },
+  { hw: "AMD MI300X", tier: "ROCm", model: "8B", quant: "none", tp: "8" },
+  { hw: "CPU only", tier: "x86/ARM", model: "-", quant: "-", tp: "-" },
+];
+// 헤더
+const headers = ["하드웨어", "등급", "모델", "양자화", "TP"];
+const colX = [0.8, 3.0, 4.8, 6.2, 7.5];
+const colW = [2.0, 1.6, 1.2, 1.2, 1.2];
+headers.forEach((h, i) => {
+  s10.addText(h, { x: colX[i], y: 1.2, w: colW[i], h: 0.45, fontSize: 12, fontFace: "Calibri", color: C.white, bold: true, fill: { color: C.navy }, valign: "middle", align: "center", margin: 0 });
+});
+hwRows.forEach((r, i) => {
+  const y = 1.65 + i * 0.48;
+  const bg = i % 2 === 0 ? C.lightGray : C.white;
+  const vals = [r.hw, r.tier, r.model, r.quant, r.tp];
+  vals.forEach((v, j) => {
+    const isBold = j === 0;
+    const clr = v === "int8" ? "E65100" : (v === "3B" ? C.accent : C.text);
+    s10.addText(v, { x: colX[j], y: y, w: colW[j], h: 0.48, fontSize: 12, fontFace: "Calibri", color: clr, bold: isBold, fill: { color: bg }, valign: "middle", align: "center", margin: 0 });
+  });
+});
+s10.addText("python run.py --check  →  GPU 자동 감지 + 최적 설정 자동 결정", { x: 0.8, y: 5.0, w: 8.4, h: 0.4, fontSize: 13, fontFace: "Consolas", color: C.accent });
+
+// ═══════════════════════════════════════
+// Slide 11: 프로젝트 현황 및 연락처
+// ═══════════════════════════════════════
+let s11 = pres.addSlide();
+s11.background = { fill: C.navy };
+s11.addText("프로젝트 현황", { x: 0.8, y: 0.3, w: 8.4, h: 0.7, fontSize: 36, fontFace: "Arial Black", color: C.white });
+
+const statsF = [
+  { label: "총 파일", value: "150+" },
+  { label: "코드 라인", value: "16,000+" },
+  { label: "테스트", value: "99 passed" },
+  { label: "MCP 도구", value: "47개" },
+  { label: "GPU 지원", value: "12종" },
+  { label: "배포 환경", value: "4종" },
+];
+statsF.forEach((s, i) => {
+  const col = i % 3;
+  const row = Math.floor(i / 3);
+  const x = 0.8 + col * 3.1;
+  const y = 1.2 + row * 1.4;
+  s11.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: x, y: y, w: 2.8, h: 1.2, fill: { color: C.darkBlue }, rectRadius: 0.1 });
+  s11.addText(s.value, { x: x, y: y + 0.1, w: 2.8, h: 0.6, fontSize: 28, fontFace: "Arial Black", color: C.accent, align: "center", valign: "middle", margin: 0 });
+  s11.addText(s.label, { x: x, y: y + 0.7, w: 2.8, h: 0.4, fontSize: 14, fontFace: "Calibri", color: C.lightText, align: "center", margin: 0 });
+});
+
+s11.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.8, y: 4.2, w: 8.4, h: 1.0, fill: { color: C.darkBlue }, rectRadius: 0.1 });
+s11.addText([
+  { text: "웹 데모    ", options: { fontSize: 14, color: C.lightText } },
+  { text: "https://nara-ai-project.vercel.app", options: { fontSize: 14, color: C.accent, bold: true, breakLine: true } },
+  { text: "GitHub     ", options: { fontSize: 14, color: C.lightText } },
+  { text: "github.com/changgi/nara-ai-project", options: { fontSize: 14, color: C.accent, bold: true } },
+], { x: 1.0, y: 4.3, w: 8.0, h: 0.8, fontFace: "Calibri", valign: "middle", align: "center" });
+
 // 저장
 const outPath = process.argv[2] || "docs/NARA-AI-과제기획서.pptx";
 pres.writeFile({ fileName: outPath }).then(() => {
-  console.log(`프레젠테이션 생성: ${outPath}`);
+  console.log(`프레젠테이션 생성: ${outPath} (${pres.slides.length}슬라이드)`);
 });
