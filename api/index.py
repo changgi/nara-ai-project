@@ -3,7 +3,7 @@
 NARA-AI Vercel Serverless API
 
 외부 의존성 없이 동작하는 경량 API.
-Vercel에서 자동으로 /api/* 엔드포인트로 서빙됨.
+Vercel에서 자동으로 /* 엔드포인트로 서빙됨.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ class OCRRequest(BaseModel):
     text: str = Field(..., min_length=1)
 
 
-@app.get("/api/health")
+@app.get("/health")
 def health():
     return {
         "status": "ok",
@@ -43,7 +43,7 @@ def health():
     }
 
 
-@app.get("/api/status")
+@app.get("/status")
 def status():
     return {
         "project": "NARA-AI",
@@ -67,7 +67,7 @@ PII_PATTERNS = {
     "account": (r"\d{3,4}-\d{2,6}-\d{2,6}", "계좌번호", "high"),
 }
 
-@app.post("/api/pii/detect")
+@app.post("/pii/detect")
 def detect_pii(req: PIIRequest):
     detections = []
     masked = req.content
@@ -103,7 +103,7 @@ HANJA_MAP = {
     "秘密": "秘密(비밀)",
 }
 
-@app.post("/api/ocr/correct")
+@app.post("/ocr/correct")
 def correct_ocr(req: OCRRequest):
     corrected = req.text
     corrections = []
@@ -131,7 +131,7 @@ def correct_ocr(req: OCRRequest):
     }
 
 
-@app.post("/api/search")
+@app.post("/search")
 def search(req: SearchRequest):
     return {
         "query": req.query,
