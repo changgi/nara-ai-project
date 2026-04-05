@@ -522,8 +522,39 @@ class BRMTree:
                             synonym_words.append(syn)
         key_words.extend(synonym_words)
 
-        # ═══ 1단계: 추정 (핵심 주제어로 직접 후보 찾기) ═══
-        # BRM 노드의 이름 또는 전체 경로에 핵심 주제어가 포함되는지 확인
+        # ═══ 키워드 가중치 분류 ═══
+        # 주제어(대상): 영역을 결정하는 핵심 단어 → 높은 가중치
+        # 행위어(동작): 문서 유형을 나타내는 단어 → 낮은 가중치
+        # 유사의미어: 확장된 단어 → 중간 가중치
+
+        # 원본 텍스트에서 직접 추출된 단어 (유사의미어 추가 전)
+        original_extracted = set(extracted)
+        synonym_set = set(synonym_words)
+
+        def get_keyword_weight(kw: str) -> float:
+            """키워드의 역할에 따른 가중치"""
+            # 행위어 (문서 유형): 낮은 가중치
+            if kw in DOC_ACTION_WORDS:
+                return 0.5
+            # 매우 일반적인 단어: 낮은 가중치
+            GENERIC = {"성과", "실적", "결과", "현황", "관련", "관계", "사항", "내용"}
+            if kw in GENERIC:
+                return 0.8
+            # 유사의미어 (확장된 단어): 중간 가중치
+            if kw in synonym_set:
+                return 1.5
+            # 원본 주제어 (직접 추출): 최고 가중치
+            if kw in original_extracted:
+                # 긴 단어(구체적)일수록 가중치 증가
+                if len(kw) >= 4:
+                    return 5.0  # "기간제교원", "성과상여금" 등
+                elif len(kw) >= 3:
+                    return 4.0  # "교원", "상여금" 등
+                else:
+                    return 3.0  # "교육", "인사" 등
+            return 2.0
+
+        # ═══ 1단계: 추정 (가중치 적용 매칭) ═══
         direct_hits: list[tuple[float, Any, list[str]]] = []
 
         for node in self.nodes.values():
@@ -531,22 +562,22 @@ class BRMTree:
             matched = []
             score = 0.0
 
-            # 핵심 주제어 매칭 (높은 가중치)
             for kw in key_words:
+                w = get_keyword_weight(kw)
                 if kw in node.name:
-                    score += 3.0  # 이름에 직접 포함: 최고점
+                    score += w * 2.0  # 이름에 직접 포함
                     matched.append(kw)
                 elif kw in node_text:
-                    score += 1.0  # 경로에 포함: 중간점
+                    score += w * 0.5  # 경로에 포함
                     matched.append(f"({kw})")
 
             if score == 0:
                 continue
 
-            # 맥락어 보너스 (일반어지만 맥락 확인용)
+            # 맥락어 보너스
             for cw in context_words:
                 if cw in STOP_WORDS and cw in node_text:
-                    score += 0.1  # 맥락 일치 소폭 보너스
+                    score += 0.1
 
             # 레벨 세밀도 보너스
             level_bonus = {"소기능": 0.5, "중기능": 0.3, "대기능": 0.1, "정책영역": 0.0, "정책분야": -0.2}

@@ -1,7 +1,7 @@
 {
-  "timestamp": "2026-04-05T19:41:17.188641+09:00",
+  "timestamp": "2026-04-05T20:00:48.301929+09:00",
   "all_passed": true,
-  "total_duration_seconds": 0.0012614000006578863,
+  "total_duration_seconds": 0.001117600011639297,
   "results": [
     {
       "task": "classification",
