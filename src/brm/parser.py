@@ -187,11 +187,19 @@ class BRMTree:
                 for w in clean.split():
                     if len(w) >= 2:
                         self._word_dict.add(w)
+                # 띄어쓰기 없는 이름 전체도 추가
+                name_nospace = node.name.replace(" ", "").replace("·", "").replace("/", "")
+                if len(name_nospace) >= 2:
+                    self._word_dict.add(name_nospace)
                 # 경로의 각 계층 이름도
                 for part in node.path.split(">>"):
                     p = part.strip()
                     if len(p) >= 2:
                         self._word_dict.add(p)
+                        # 띄어쓰기 없는 버전
+                        p_nospace = p.replace(" ", "")
+                        if p_nospace != p and len(p_nospace) >= 2:
+                            self._word_dict.add(p_nospace)
 
             # 한국어 기본 단어 사전 (일상어 + 행정 용어)
             BASIC_WORDS = {
@@ -273,25 +281,47 @@ class BRMTree:
 
         extracted = []
         for w in raw_words:
-            # 원형 추가 (사전에 있으면)
-            if w in self._word_dict:
-                extracted.append(w)
-
-            # 조사 제거 후 확인
+            # 1) 조사 먼저 제거 → 어간(stem)이 핵심
             stem = JOSA_SUFFIX.sub('', w)
-            if len(stem) >= 2 and stem != w and stem in self._word_dict:
-                extracted.append(stem)
+            if len(stem) < 2:
+                stem = w  # 조사 제거 후 너무 짧으면 원본 유지
 
-            # 복합어 분해: 사전에 있는 부분어만 + 맥락 검증
-            if len(w) >= 4:
-                for size in range(2, min(len(w), 8)):
-                    for i in range(len(w) - size + 1):
-                        sub = w[i:i+size]
+            # 2) 어간을 우선 추가 (조사 붙은 원본은 추가하지 않음)
+            if stem != w:
+                # 조사가 제거된 경우: 어간만 추가
+                if stem in self._word_dict:
+                    if stem not in extracted:
+                        extracted.append(stem)
+                # 어간이 사전에 없어도 추가 (BRM에서 매칭 시도)
+                elif len(stem) >= 2 and stem not in extracted:
+                    extracted.append(stem)
+            else:
+                # 조사 없는 원본: 사전에 있으면 추가
+                if w in self._word_dict and w not in extracted:
+                    extracted.append(w)
+
+            # 3) 복합어 분해: 어간 기준으로 분해 (조사 제거 후)
+            target = stem if stem != w else w
+            if len(target) >= 4:
+                for size in range(2, min(len(target), 8)):
+                    for i in range(len(target) - size + 1):
+                        sub = target[i:i+size]
                         if (sub in self._word_dict and
                             sub not in extracted and
-                            sub != w and
-                            is_meaningful_subword(sub, w)):
+                            sub != target and
+                            is_meaningful_subword(sub, target)):
                             extracted.append(sub)
+
+        # 띄어쓰기 정규화: "유관 기관" == "유관기관"
+        # 원본 텍스트를 공백 제거한 버전에서도 사전 매칭
+        text_nospace = text.replace(" ", "")
+        if text_nospace != text:
+            nospace_words = list(dict.fromkeys(re.findall(r'[가-힣]{2,}', text_nospace)))
+            for w in nospace_words:
+                stem = JOSA_SUFFIX.sub('', w)
+                if len(stem) >= 2 and stem not in extracted:
+                    if stem in self._word_dict:
+                        extracted.append(stem)
 
         # 일반어 필터
         STOP_WORDS = {
