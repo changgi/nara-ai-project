@@ -657,27 +657,41 @@ class BRMTree:
             direct_hits.append((score, node, matched))
 
         # ═══ 2단계: 추적 (상위 영역 패턴 분석) ═══
-        # 1단계 후보들의 경로를 분석하여 가장 많이 등장하는 상위 영역 확인
         area_votes: dict[str, float] = {}
+        # 정책분야(최상위) 수준 별도 집계 — 노드 수 + 점수 합산
+        top_level_votes: dict[str, float] = {}
+        top_level_count: dict[str, int] = {}
+
         for score, node, matched in direct_hits:
             path_parts = [p.strip() for p in node.path.split(">>") if p.strip()]
-            # 각 경로 수준에 점수 부여
+            top_area = path_parts[0] if path_parts else "기타"
+
+            # 정책분야별 투표 (노드 수 × 점수)
+            top_level_votes[top_area] = top_level_votes.get(top_area, 0) + score
+            top_level_count[top_area] = top_level_count.get(top_area, 0) + 1
+
             for depth, part in enumerate(path_parts):
-                weight = score * (0.5 ** depth)  # 상위일수록 높은 가중치
+                weight = score * (0.5 ** depth)
                 area_key = ">>".join(path_parts[:depth+1])
                 area_votes[area_key] = area_votes.get(area_key, 0) + weight
 
         if not area_votes:
             return []
 
-        # 가장 지지를 많이 받은 영역 (정책분야 수준)
+        # 정책분야별 종합 점수 = 누적 점수 × log(노드 수) — 노드가 많은 영역 우선
+        import math
+        for area in top_level_votes:
+            count = top_level_count.get(area, 1)
+            top_level_votes[area] *= (1 + math.log(max(count, 1)))
+
         top_area_votes = sorted(area_votes.items(), key=lambda x: x[1], reverse=True)
+        top_level_sorted = sorted(top_level_votes.items(), key=lambda x: x[1], reverse=True)
 
         # ═══ 3단계: 정밀화 (영역 힌트 + 2단계 추적 부스트) ═══
+        # 2단계에서 최다 투표 정책분야 (노드 수 × 점수)
         top_area_names = set()
-        for area_path, _ in top_area_votes[:10]:
-            top_name = area_path.split(">>")[0].strip()
-            top_area_names.add(top_name)
+        for area_name, _ in top_level_sorted[:3]:
+            top_area_names.add(area_name)
 
         # 공문 맥락에서 감지된 영역도 추가 (매우 강력)
         if domain_hints:
@@ -708,8 +722,10 @@ class BRMTree:
             top_area_names.update(domain_hints)
 
         # 범용 행정 주제: 영역 힌트가 없으면 일반공공행정 우선
-        GENERIC_ADMIN = {"출장", "해외출장", "여비", "물품", "재산", "보안", "문서"}
-        if not domain_hints and any(kw in GENERIC_ADMIN for kw in key_words[:10]):
+        GENERIC_ADMIN = {"출장", "해외출장", "여비", "물품", "재산", "국유재산",
+                         "공유재산", "재산관리", "보안", "문서", "인사", "공무원"}
+        if not domain_hints and any(kw in GENERIC_ADMIN for kw in key_words[:15]):
+            domain_hints.append("일반공공행정")
             top_area_names.add("일반공공행정")
 
         boosted_hits = []
@@ -717,10 +733,13 @@ class BRMTree:
             path_parts = [p.strip() for p in node.path.split(">>") if p.strip()]
             node_top = path_parts[0] if path_parts else ""
 
-            # 공문 맥락 영역과 일치하면 x3 (기관명에서 확인된 영역)
+            # 공문 맥락 영역과 일치하면 x3
             if node_top in domain_hints:
                 score *= 3.0
-            # 2단계 추적 영역과 일치하면 x2
+            # 2단계 투표 1위 영역과 일치하면 x2.5
+            elif top_level_sorted and node_top == top_level_sorted[0][0]:
+                score *= 2.5
+            # 2단계 투표 상위 3개 영역과 일치하면 x2
             elif node_top in top_area_names:
                 score *= 2.0
 
@@ -753,9 +772,10 @@ class BRMTree:
                 "analysis": {
                     "phase1_key_words": key_words[:20],
                     "phase1_direct_hits": len(direct_hits),
-                    "phase0_domain_hints": domain_hints,  # 공문 맥락에서 감지된 영역
-                    "phase2_top_area": top_area_votes[0][0] if top_area_votes else "",
-                    "phase2_area_score": round(top_area_votes[0][1] if top_area_votes else 0, 1),
+                    "phase0_domain_hints": domain_hints,
+                    "phase2_top_area": top_level_sorted[0][0] if top_level_sorted else "",
+                    "phase2_area_score": round(top_level_sorted[0][1] if top_level_sorted else 0, 1),
+                    "phase2_top3": [(a, round(s, 1)) for a, s in top_level_sorted[:3]],
                     "phase2_area_rank": area_rank + 1,
                     "phase3_level": node.level,
                     "phase3_score": round(score, 2),
