@@ -682,6 +682,79 @@ async def get_stats():
     return stats
 
 
+@app.get("/dict/lookup")
+async def dict_lookup(word: str):
+    """사전 조회 (표준국어+다음+위키피디아+나무위키) + DB 캐시"""
+    try:
+        from src.dictionary.lookup import get_dict_lookup, store_to_supabase
+        dl = get_dict_lookup()
+        entries = dl.lookup(word)
+
+        # DB에 캐시 저장
+        try:
+            await store_to_supabase(entries)
+        except Exception:
+            pass
+
+        return {
+            "word": word,
+            "is_real_word": any(e.exists for e in entries),
+            "sources": [
+                {
+                    "source": e.source,
+                    "exists": e.exists,
+                    "definition": e.definition,
+                    "category": e.category,
+                    "url": e.url,
+                }
+                for e in entries
+            ],
+        }
+    except ImportError:
+        return {"word": word, "is_real_word": False, "sources": [], "error": "dictionary module not available"}
+
+
+@app.post("/dict/validate")
+async def dict_validate(req: PIIRequest):
+    """텍스트에서 추출한 키워드의 사전 존재 여부 일괄 확인"""
+    import re as _re
+    words = list(dict.fromkeys(_re.findall(r'[가-힣]{2,}', req.content)))[:20]
+
+    try:
+        from src.dictionary.lookup import get_dict_lookup, store_to_supabase
+        dl = get_dict_lookup()
+        results = []
+        for w in words:
+            entries = dl.lookup(w)
+            is_real = any(e.exists for e in entries)
+            best_def = next((e.definition for e in entries if e.exists and e.definition), "")
+            sources = [e.source for e in entries if e.exists]
+            results.append({
+                "word": w,
+                "is_real_word": is_real,
+                "sources": sources,
+                "definition": best_def[:100],
+            })
+            # DB 캐시
+            try:
+                await store_to_supabase(entries)
+            except Exception:
+                pass
+
+        real_words = [r["word"] for r in results if r["is_real_word"]]
+        fake_words = [r["word"] for r in results if not r["is_real_word"]]
+        return {
+            "total": len(results),
+            "real_count": len(real_words),
+            "fake_count": len(fake_words),
+            "real_words": real_words,
+            "fake_words": fake_words,
+            "details": results,
+        }
+    except ImportError:
+        return {"total": len(words), "real_count": 0, "error": "dictionary module not available"}
+
+
 @app.get("/pipeline")
 async def get_pipeline():
     """11단계 파이프라인 정보"""

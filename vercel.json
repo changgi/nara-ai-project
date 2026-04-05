@@ -6,6 +6,7 @@
     { "source": "/search", "destination": "/api/index" },
     { "source": "/classify", "destination": "/api/index" },
     { "source": "/brm/:path*", "destination": "/api/index" },
+    { "source": "/dict/:path*", "destination": "/api/index" },
     { "source": "/metadata", "destination": "/api/index" },
     { "source": "/redaction/:path*", "destination": "/api/index" },
     { "source": "/stats", "destination": "/api/index" },
