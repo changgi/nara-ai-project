@@ -218,8 +218,58 @@ class BRMTree:
         # ── 텍스트에서 실제 단어만 추출 ──
         raw_words = list(dict.fromkeys(re.findall(r'[가-힣]{2,}', text)))
 
-        # 조사/어미 제거 패턴
-        JOSA = re.compile(r'(과의|에서|으로|에게|부터|까지|에는|와의|이다|하다|되다|한다|했다|하는|된다|라는|에의|과|의|을|를|이|가|은|는|에|로|와|도)$')
+        # 조사/어미 패턴 (단어 끝에 붙는 것)
+        JOSA_SUFFIX = re.compile(r'(과의|에서의|으로의|에게서|에서|으로|에게|부터|까지|에는|와의|이다|하다|되다|한다|했다|하는|된다|라는|에의|과|의|을|를|이|가|은|는|에|로|와|도)$')
+
+        # 조사/접속사 자체 (독립 단어로 무의미한 것)
+        JOSA_WORDS = {
+            "과의", "에서", "으로", "에게", "부터", "까지", "에는", "와의",
+            "이다", "하다", "되다", "한다", "했다", "하는", "된다", "라는",
+            "에의", "으로의", "에서의", "에게서",
+            "관한", "위한", "통한", "대한", "의한", "따른", "인한",
+        }
+
+        # 맥락상 무의미한 분절 판별
+        def is_meaningful_subword(sub: str, parent: str) -> bool:
+            """부분어가 맥락상 의미 있는 키워드인지 판별
+
+            X: "유관기관과의" → "과의" (조사 잔여물)
+            X: "업무협의회비" → "의회" (무의미한 분절)
+            O: "유관기관과의" → "유관기관" (실제 명사)
+            O: "업무협의회비" → "업무", "협의", "회비" (의미 단위)
+            """
+            # 1. 조사/접속사 자체면 제외
+            if sub in JOSA_WORDS:
+                return False
+
+            # 2. 부모 단어의 끝부분이 조사이고, 그 조사를 떼어낸 나머지가 sub면 OK
+            #    하지만 조사 부분 자체가 sub면 NO
+            stem = JOSA_SUFFIX.sub('', parent)
+            if sub == parent[len(stem):]:  # 조사 부분을 키워드로 뽑은 경우
+                return False
+
+            # 3. 1글자 한자어 잔여물 제거 (관, 의, 과 등)
+            if len(sub) == 1:
+                return False
+
+            # 4. 흔한 무의미 분절 패턴 (2글자인데 조사 조합)
+            NOISE_2CHAR = {
+                "과의", "의의", "에의", "로의", "와의", "으로", "에서",
+                "관과", "과과", "기관", "관기",  # "유관기관"에서 "관기"는 무의미
+            }
+            # "관기"는 실제 옛말이지만, "유관기관"의 분절로는 무의미
+            # 판별: sub가 parent의 단어 경계가 아닌 곳에서 시작하는지
+            idx = parent.find(sub)
+            if idx > 0 and idx + len(sub) < len(parent):
+                # 중간에서 뽑힌 부분어 — 양쪽이 모두 의미 단위인지 확인
+                left = parent[:idx]
+                right = parent[idx + len(sub):]
+                # 왼쪽과 오른쪽 모두 2글자 이상이고 사전에 있으면 → sub는 경계가 아님
+                if (len(left) >= 2 and left in self._word_dict and
+                    len(right) >= 2 and right in self._word_dict):
+                    return False  # "유관" + "관기" + "관" 에서 "관기"는 경계가 아님
+
+            return True
 
         extracted = []
         for w in raw_words:
@@ -228,29 +278,31 @@ class BRMTree:
                 extracted.append(w)
 
             # 조사 제거 후 확인
-            stem = JOSA.sub('', w)
+            stem = JOSA_SUFFIX.sub('', w)
             if len(stem) >= 2 and stem != w and stem in self._word_dict:
                 extracted.append(stem)
 
-            # 복합어 분해: 사전에 있는 부분어만 추출
+            # 복합어 분해: 사전에 있는 부분어만 + 맥락 검증
             if len(w) >= 4:
                 for size in range(2, min(len(w), 8)):
                     for i in range(len(w) - size + 1):
                         sub = w[i:i+size]
-                        if sub in self._word_dict and sub not in extracted and sub != w:
+                        if (sub in self._word_dict and
+                            sub not in extracted and
+                            sub != w and
+                            is_meaningful_subword(sub, w)):
                             extracted.append(sub)
 
-        # 일반어 필터 (BRM에 수백 개 등장하는 범용어)
+        # 일반어 필터
         STOP_WORDS = {
             "추진", "지원", "관리", "운영", "사업", "계획", "정책", "행정", "기획",
             "조사", "분석", "평가", "감사", "연구", "개발", "협력", "조정", "보고",
             "총괄", "기반", "체계", "서비스", "정보", "통계", "보호", "진흥",
             "확대", "강화", "개선", "혁신", "고도화", "활성화", "내실화",
             "방안", "대책", "현황", "결과", "발표", "수립", "시행",
-            "관한", "위한", "통한", "대한", "관련",
         }
 
-        key_words = list(dict.fromkeys(w for w in extracted if w not in STOP_WORDS and len(w) >= 2))
+        key_words = list(dict.fromkeys(w for w in extracted if w not in STOP_WORDS and w not in JOSA_WORDS and len(w) >= 2))
         context_words = raw_words
 
         # ── 맥락 추상화: 추출된 키워드에서 상위 개념 추정 ──
