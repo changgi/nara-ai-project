@@ -367,7 +367,7 @@ class ClassifyRequestFull(BaseModel):
     title: str = Field(..., min_length=1)
     content: str = Field(..., min_length=1)
     agency: str = ""
-    limit: int = Field(default=30, ge=1, le=500)
+    limit: int = Field(default=100, ge=1, le=5000)
     offset: int = Field(default=0, ge=0)
 
 

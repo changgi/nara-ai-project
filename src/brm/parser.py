@@ -191,8 +191,20 @@ class BRMTree:
             "확대", "강화", "개선", "혁신", "고도화", "활성화", "내실화",
             "방안", "대책", "현황", "결과", "발표", "수립", "시행",
         }
+        # 복합어 분해: "광주민주화운동" → ["광주민주화운동", "광주", "민주화", "운동"]
+        expanded = []
+        for w in text_words:
+            expanded.append(w)
+            if len(w) >= 4:
+                # 2글자씩 슬라이딩 윈도우로 부분어 추출
+                for i in range(len(w)):
+                    for size in (2, 3, 4):
+                        sub = w[i:i+size]
+                        if len(sub) >= 2 and sub != w and sub not in expanded:
+                            expanded.append(sub)
+
         # 핵심 주제어 = 일반어를 제외한 구체적 단어
-        key_words = [w for w in text_words if w not in STOP_WORDS and len(w) >= 2]
+        key_words = list(dict.fromkeys(w for w in expanded if w not in STOP_WORDS and len(w) >= 2))
         context_words = text_words  # 맥락 파악용 전체 단어
 
         # ═══ 1단계: 추정 (핵심 주제어로 직접 후보 찾기) ═══
