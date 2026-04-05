@@ -178,34 +178,112 @@ class BRMTree:
         import re
         text_lower = text.lower()
 
-        # 텍스트에서 핵심 주제어 추출 (2글자 이상 한글)
-        text_words = list(dict.fromkeys(re.findall(r'[가-힣]{2,}', text)))  # 순서 유지 중복 제거
+        # ── 한국어 단어 사전 구축 (BRM + 기본어) ──
+        if not hasattr(self, '_word_dict'):
+            self._word_dict = set()
+            # BRM 17,634건에서 모든 단어 추출
+            for node in self.nodes.values():
+                clean = node.name.replace("·", " ").replace("/", " ").replace("(", " ").replace(")", " ").replace(",", " ")
+                for w in clean.split():
+                    if len(w) >= 2:
+                        self._word_dict.add(w)
+                # 경로의 각 계층 이름도
+                for part in node.path.split(">>"):
+                    p = part.strip()
+                    if len(p) >= 2:
+                        self._word_dict.add(p)
 
-        # 일반어 (BRM 17,634건 중 수백 개에 등장) vs 구체어 구분
+            # 한국어 기본 단어 사전 (일상어 + 행정 용어)
+            BASIC_WORDS = {
+                # 일상어
+                "경제", "사회", "문화", "교육", "환경", "건강", "안전", "복지", "국방", "외교",
+                "통일", "산업", "농업", "수산", "해양", "과학", "기술", "통신", "교통", "건설",
+                "주택", "도시", "농촌", "국토", "에너지", "자원", "금융", "세금", "예산", "무역",
+                # 행정용어
+                "기관", "부서", "위원회", "공단", "재단", "연구소", "센터", "사무소",
+                "업무", "회의", "협의", "결의", "지급", "회비", "경비", "비용", "수당",
+                "민주", "민주화", "운동", "혁명", "시위", "항쟁", "독립", "자유", "인권",
+                "법률", "법령", "법안", "특별법", "기본법", "시행령", "조례", "규칙",
+                "전쟁", "평화", "안보", "군사", "방위", "병역",
+                "광주", "서울", "부산", "대구", "인천", "대전", "울산", "세종", "제주",
+                "백신", "접종", "방역", "감염", "바이러스", "코로나", "팬데믹",
+                "반도체", "소재", "부품", "장비", "국산화", "수출", "수입",
+                "탄소", "온실가스", "감축", "중립", "기후", "오염",
+                "디지털", "데이터", "소프트웨어", "인공지능", "로봇",
+                "유관", "유관기관", "관계", "관계철", "문서", "기록", "기록물",
+                "공개", "비공개", "비밀", "해제", "심사", "검토", "승인",
+            }
+            self._word_dict.update(BASIC_WORDS)
+
+        # ── 텍스트에서 실제 단어만 추출 ──
+        raw_words = list(dict.fromkeys(re.findall(r'[가-힣]{2,}', text)))
+
+        # 조사/어미 제거 패턴
+        JOSA = re.compile(r'(과의|에서|으로|에게|부터|까지|에는|와의|이다|하다|되다|한다|했다|하는|된다|라는|에의|과|의|을|를|이|가|은|는|에|로|와|도)$')
+
+        extracted = []
+        for w in raw_words:
+            # 원형 추가 (사전에 있으면)
+            if w in self._word_dict:
+                extracted.append(w)
+
+            # 조사 제거 후 확인
+            stem = JOSA.sub('', w)
+            if len(stem) >= 2 and stem != w and stem in self._word_dict:
+                extracted.append(stem)
+
+            # 복합어 분해: 사전에 있는 부분어만 추출
+            if len(w) >= 4:
+                for size in range(2, min(len(w), 8)):
+                    for i in range(len(w) - size + 1):
+                        sub = w[i:i+size]
+                        if sub in self._word_dict and sub not in extracted and sub != w:
+                            extracted.append(sub)
+
+        # 일반어 필터 (BRM에 수백 개 등장하는 범용어)
         STOP_WORDS = {
             "추진", "지원", "관리", "운영", "사업", "계획", "정책", "행정", "기획",
             "조사", "분석", "평가", "감사", "연구", "개발", "협력", "조정", "보고",
-            "총괄", "기반", "체계", "시스템", "서비스", "정보", "데이터", "통계",
-            "예산", "재정", "인력", "조직", "제도", "법령", "규정", "기준",
-            "홍보", "소통", "대외", "국제", "보호", "진흥", "확충",
+            "총괄", "기반", "체계", "서비스", "정보", "통계", "보호", "진흥",
             "확대", "강화", "개선", "혁신", "고도화", "활성화", "내실화",
             "방안", "대책", "현황", "결과", "발표", "수립", "시행",
+            "관한", "위한", "통한", "대한", "관련",
         }
-        # 복합어 분해: "광주민주화운동" → ["광주민주화운동", "광주", "민주화", "운동"]
-        expanded = []
-        for w in text_words:
-            expanded.append(w)
-            if len(w) >= 4:
-                # 2글자씩 슬라이딩 윈도우로 부분어 추출
-                for i in range(len(w)):
-                    for size in (2, 3, 4):
-                        sub = w[i:i+size]
-                        if len(sub) >= 2 and sub != w and sub not in expanded:
-                            expanded.append(sub)
 
-        # 핵심 주제어 = 일반어를 제외한 구체적 단어
-        key_words = list(dict.fromkeys(w for w in expanded if w not in STOP_WORDS and len(w) >= 2))
-        context_words = text_words  # 맥락 파악용 전체 단어
+        key_words = list(dict.fromkeys(w for w in extracted if w not in STOP_WORDS and len(w) >= 2))
+        context_words = raw_words
+
+        # ── 맥락 추상화: 추출된 키워드에서 상위 개념 추정 ──
+        # "유관기관 + 업무 + 협의 + 회비 + 지급" → 행정업무, 회의경비
+        CONTEXT_MAP = {
+            "기관": ["일반공공행정", "기관", "행정"],
+            "업무": ["일반공공행정", "업무", "행정"],
+            "협의": ["회의", "협력", "행정"],
+            "회비": ["경비", "예산", "지급"],
+            "지급": ["재정", "예산", "지출"],
+            "경비": ["예산", "재정", "지출"],
+            "민주": ["민주화", "인권", "시민"],
+            "민주화": ["민주화운동", "민주", "인권"],
+            "전쟁": ["국방", "군사", "안보"],
+            "외교": ["통일·외교", "외교", "국제"],
+            "백신": ["보건", "감염병", "예방접종"],
+            "접종": ["보건", "예방", "감염병"],
+            "방역": ["보건", "감염병", "안전"],
+            "반도체": ["산업", "전자", "기술"],
+            "소재": ["산업", "부품", "소재"],
+            "부품": ["산업", "소재", "제조"],
+            "탄소": ["환경", "기후", "에너지"],
+            "교육": ["교육", "학교", "학습"],
+            "교육과정": ["교육", "교과", "교육과정"],
+        }
+        # 추상화된 키워드 추가
+        abstract_words = []
+        for kw in key_words:
+            if kw in CONTEXT_MAP:
+                for abst in CONTEXT_MAP[kw]:
+                    if abst not in key_words and abst not in abstract_words:
+                        abstract_words.append(abst)
+        key_words.extend(abstract_words)
 
         # ═══ 1단계: 추정 (핵심 주제어로 직접 후보 찾기) ═══
         # BRM 노드의 이름 또는 전체 경로에 핵심 주제어가 포함되는지 확인
