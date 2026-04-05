@@ -178,6 +178,42 @@ class BRMTree:
         import re
         text_lower = text.lower()
 
+        # ── 공문 맥락 분석: 기관/부서에서 영역 힌트 추출 ──
+        # 교육청, 교육지원청, 유초등교육과 → 교육 영역
+        # 국방부, 합참 → 국방 영역
+        # 환경부, 환경청 → 환경 영역
+        ORG_DOMAIN_MAP = {
+            # 교육
+            "교육": "교육", "교육청": "교육", "교육지원청": "교육",
+            "교육과": "교육", "교육부": "교육", "유초등": "교육",
+            "중등": "교육", "고등": "교육", "학교": "교육", "교원": "교육",
+            # 국방
+            "국방부": "국방", "합참": "국방", "육군": "국방", "해군": "국방", "공군": "국방",
+            # 환경
+            "환경부": "환경", "환경청": "환경",
+            # 보건
+            "보건": "보건", "질병관리": "보건", "식약처": "보건",
+            # 산업
+            "산업부": "산업·통상·중소기업", "산업통상": "산업·통상·중소기업",
+            # 외교
+            "외교부": "통일·외교", "통일부": "통일·외교",
+            # 농림
+            "농림부": "농림", "농식품부": "농림", "해수부": "해양수산",
+            # 복지
+            "복지부": "사회복지", "보건복지": "사회복지", "여성가족": "사회복지",
+            # 행정
+            "행안부": "일반공공행정", "행정안전": "일반공공행정",
+            # 과학기술
+            "과기부": "과학기술", "과학기술": "과학기술",
+            # 재정
+            "기재부": "재정·세제·금융", "국세청": "재정·세제·금융",
+        }
+        domain_hints = []
+        for org_key, domain in ORG_DOMAIN_MAP.items():
+            if org_key in text:
+                if domain not in domain_hints:
+                    domain_hints.append(domain)
+
         # ── 한국어 단어 사전 구축 (BRM + 기본어) ──
         if not hasattr(self, '_word_dict'):
             self._word_dict = set()
@@ -602,20 +638,28 @@ class BRMTree:
         # 가장 지지를 많이 받은 영역 (정책분야 수준)
         top_area_votes = sorted(area_votes.items(), key=lambda x: x[1], reverse=True)
 
-        # ═══ 3단계: 정밀화 (2단계 영역 일치 보너스 적용) ═══
-        # 2단계에서 가장 지지받은 정책분야 상위 3개
+        # ═══ 3단계: 정밀화 (영역 힌트 + 2단계 추적 부스트) ═══
         top_area_names = set()
         for area_path, _ in top_area_votes[:10]:
             top_name = area_path.split(">>")[0].strip()
             top_area_names.add(top_name)
 
-        # 영역 일치 보너스: 2단계 추적 결과와 동일 정책분야면 점수 x2
+        # 공문 맥락에서 감지된 영역도 추가 (매우 강력)
+        if domain_hints:
+            top_area_names.update(domain_hints)
+
         boosted_hits = []
         for score, node, matched in direct_hits:
             path_parts = [p.strip() for p in node.path.split(">>") if p.strip()]
             node_top = path_parts[0] if path_parts else ""
-            if node_top in top_area_names:
-                score *= 2.0  # 영역 일치 보너스
+
+            # 공문 맥락 영역과 일치하면 x3 (기관명에서 확인된 영역)
+            if node_top in domain_hints:
+                score *= 3.0
+            # 2단계 추적 영역과 일치하면 x2
+            elif node_top in top_area_names:
+                score *= 2.0
+
             boosted_hits.append((score, node, matched))
 
         boosted_hits.sort(key=lambda x: x[0], reverse=True)
@@ -645,6 +689,7 @@ class BRMTree:
                 "analysis": {
                     "phase1_key_words": key_words[:20],
                     "phase1_direct_hits": len(direct_hits),
+                    "phase0_domain_hints": domain_hints,  # 공문 맥락에서 감지된 영역
                     "phase2_top_area": top_area_votes[0][0] if top_area_votes else "",
                     "phase2_area_score": round(top_area_votes[0][1] if top_area_votes else 0, 1),
                     "phase2_area_rank": area_rank + 1,

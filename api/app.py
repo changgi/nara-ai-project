@@ -400,8 +400,9 @@ async def classify_record(req: ClassifyRequestFull):
                     "agencies": top.get("agencies", []),
                 } if top else None,
                 "reasoning": (
-                    f"맥락 기반 3단계 분석.\n"
-                    f"[1단계] 주제어: {analysis.get('phase1_key_words',[])} → {analysis.get('phase1_direct_hits',0)}건 매칭\n"
+                    f"맥락 기반 분석.\n"
+                    + (f"[공문 맥락] 영역 힌트: {analysis.get('phase0_domain_hints',[])} (기관/부서명 감지)\n" if analysis.get('phase0_domain_hints') else "")
+                    + f"[1단계] 주제어: {analysis.get('phase1_key_words',[])[:10]} → {analysis.get('phase1_direct_hits',0)}건 매칭\n"
                     f"[2단계] 최다 영역: '{analysis.get('phase2_top_area','')}' ({analysis.get('phase2_area_score',0)}점)\n"
                     f"[3단계] 최종: '{top['name']}' ({top['level']})" if top else "매칭 없음"
                 ),
