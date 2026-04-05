@@ -305,6 +305,31 @@ class BRMTree:
         key_words = list(dict.fromkeys(w for w in extracted if w not in STOP_WORDS and w not in JOSA_WORDS and len(w) >= 2))
         context_words = raw_words
 
+        # ── 복합어 조합: 키워드 2~4개 조합으로 유의미한 복합단어 생성 ──
+        from itertools import combinations
+        base_kws = [w for w in key_words if len(w) >= 2][:12]  # 조합 폭발 방지
+        compound_words = []
+
+        for combo_size in range(2, min(len(base_kws) + 1, 5)):  # 2~4단어 조합
+            for combo in combinations(range(len(base_kws)), combo_size):
+                words_in_combo = [base_kws[i] for i in combo]
+                # 순서 유지 조합 + 역순도 시도
+                for ordered in [words_in_combo, list(reversed(words_in_combo))]:
+                    compound = "".join(ordered)
+                    if len(compound) > 12:  # 너무 긴 복합어 제외
+                        continue
+                    if compound in self._word_dict and compound not in key_words and compound not in compound_words:
+                        compound_words.append(compound)
+                    # 중간에 공백/구분자 없이 BRM 경로에 존재하는지도 확인
+                    if any(compound in node.name or compound in node.path for node in list(self.nodes.values())[:5000]):
+                        if compound not in key_words and compound not in compound_words and len(compound) >= 4:
+                            compound_words.append(compound)
+                            break  # 이 조합은 찾았으니 역순 불필요
+
+        # 복합어를 키워드에 추가 (높은 우선순위)
+        if compound_words:
+            key_words = compound_words + key_words  # 복합어를 앞에 배치
+
         # ── 맥락 추상화: 추출된 키워드에서 상위 개념 추정 ──
         # "유관기관 + 업무 + 협의 + 회비 + 지급" → 행정업무, 회의경비
         # 맥락 추상화 + 동의어 맵 (키워드 → 관련 BRM 개념 확장)
